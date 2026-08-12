@@ -1,0 +1,104 @@
+# University Waste Management & Agricultural Field Monitoring System
+
+Automated detection of green vegetation/waste in agricultural and campus
+field imagery, using HSV color-space masking as a domain-specific noise
+filter ahead of YOLOv8 training, then reprojecting detections onto the
+original unmasked RGB image for human-interpretable output.
+
+## Core hypothesis
+
+Standard object detectors trained on raw RGB agricultural imagery are
+confused by soil texture and dry yellow straw, which visually resemble or
+occlude green plant matter. This project tests whether HSV green-masking as
+a **training-time preprocessing step** (not a runtime dependency — inference
+still runs on raw RGB) improves detection precision/recall over an unmasked
+baseline, trained identically otherwise.
+
+## Repository layout
+
+```
+src/
+  preprocessing/
+    hsv_mask.py       # HSV green masking: hard / soft strategies, green-ratio scoring
+    dataset_prep.py    # dataset discovery, single-class merge, split, masked-variant generation
+  training/
+    train.py           # YOLOv8 training wrapper, baseline-vs-masked ablation runner
+  inference/
+    predict.py         # inference on original RGB + green-ratio false-positive filter
+  evaluation/
+    metrics.py          # results.csv parsing, loss/mAP curves, baseline-vs-masked comparison
+notebooks/
+  colab_pipeline.ipynb # end-to-end Colab GPU notebook (the primary way to run this project)
+```
+
+## Dataset
+
+Default target: [Crop and Weed Detection Data with Bounding Boxes](https://www.kaggle.com/datasets/ravirajsinh45/crop-and-weed-detection-data-with-bounding-boxes)
+(Kaggle, ravirajsinh45) — ~1300 real sesame-field images (512×512) with
+YOLO-format bounding boxes for crop and weed against natural soil
+background. We merge both classes into a single `green_vegetation` class
+since both are green plant matter being distinguished from soil.
+
+**The exact on-disk layout and class-id convention (commonly `0=crop`,
+`1=weed`) should be verified after download** — `dataset_prep.inspect_class_distribution()`
+prints the class counts before any merging happens; the Colab notebook does
+this automatically in step 3, don't skip reading its output.
+
+Swapping in a different dataset only requires it to be in YOLO format
+(image + matching `.txt` per image); `discover_pairs()` auto-matches by
+filename stem regardless of folder layout.
+
+## Running it
+
+This project is designed to run on **Google Colab with a GPU runtime**
+(T4 free tier is sufficient for `yolov8s`, 512px, batch 16):
+
+1. Open `notebooks/colab_pipeline.ipynb` in Colab.
+2. `Runtime > Change runtime type > T4 GPU`.
+3. Either push this repo to GitHub and set `REPO_URL` in the setup cell, or
+   upload the `src/` folder into the Colab file browser manually.
+4. Run cells top to bottom. You'll be prompted to upload your Kaggle API
+   token (`kaggle.json`) once.
+5. All datasets, weights, and report figures are written under
+   `/content/drive/MyDrive/university-waste-management/`, so they persist
+   across Colab session resets — no manual export step needed.
+
+To run locally instead (CPU or local GPU): `pip install -r requirements.txt`,
+then call the same `src/` functions directly — the notebook cells are thin
+wrappers around them.
+
+## Preprocessing design — masking strategies
+
+Two masking modes are implemented for ablation, not just one, because a hard
+black background risks becoming a shortcut cue the network learns instead of
+real vegetation texture:
+
+- **hard** (`apply_mask_hard`): zero non-green pixels. Maximum noise removal,
+  maximum domain shift from unmasked inference-time images.
+- **soft** (`apply_mask_soft`, default): desaturate/darken background rather
+  than zero it — suppresses the soil/straw color signal while preserving
+  spatial context (field horizon, planting rows) and staying visually closer
+  to the raw images the model sees at inference time.
+
+Report both in your results section; the gap between them is itself
+evidence for *why* the soft variant is the better design choice, not just
+that masking helps at all.
+
+## Post-processing: green-ratio filter
+
+At inference time (`predict.py`), an optional `green_ratio_threshold` drops
+any detected box whose interior isn't actually majority-green in HSV space —
+a cheap, interpretable false-positive filter that's easy to justify
+mathematically in a report (unlike a learned NMS variant).
+
+## Evaluation
+
+`src/evaluation/metrics.py` produces the core comparison artifact: a bar
+chart of final-epoch precision / recall / mAP50 / mAP50-95 for baseline vs
+masked runs, plus per-run loss and mAP-over-epochs curves. These are the
+figures the competition writeup should lead with.
+
+## Requirements
+
+See `requirements.txt`. Colab has most of these preinstalled; the notebook
+installs the rest (`ultralytics`, `kaggle`, etc.) in its setup cell.
