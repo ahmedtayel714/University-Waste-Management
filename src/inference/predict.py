@@ -58,7 +58,8 @@ def draw_detections(image: np.ndarray, detections: list[Detection], class_names:
     for det in detections:
         x1, y1, x2, y2 = [int(v) for v in det.box]
         cv2.rectangle(annotated, (x1, y1), (x2, y2), BOX_COLOR, 2)
-        label = f"{class_names[det.cls]} {det.conf:.2f}"
+        name = class_names[det.cls] if det.cls < len(class_names) else str(det.cls)
+        label = f"{name} {det.conf:.2f}"
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
         cv2.rectangle(annotated, (x1, y1 - th - 6), (x1 + tw + 4, y1), BOX_COLOR, -1)
         cv2.putText(annotated, label, (x1 + 2, y1 - 4), cv2.FONT_HERSHEY_SIMPLEX, 0.5, TEXT_COLOR, 1)

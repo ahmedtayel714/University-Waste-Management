@@ -102,3 +102,20 @@ figures the competition writeup should lead with.
 
 See `requirements.txt`. Colab has most of these preinstalled; the notebook
 installs the rest (`ultralytics`, `kaggle`, etc.) in its setup cell.
+
+## Results
+
+First completed ablation run (`yolov8s`, 512px, 100 epochs):
+
+| Metric      | Baseline (unmasked) | HSV-Masked | Δ       |
+|-------------|---------------------|------------|---------|
+| Precision   | 0.822               | 0.885      | +0.063  |
+| Recall      | 0.800               | 0.874      | +0.074  |
+| mAP50       | 0.863               | 0.953      | +0.090  |
+| mAP50-95    | 0.557               | 0.694      | +0.137  |
+
+HSV green-masking as a training-time preprocessing step improved every
+tracked metric, with the largest gain on mAP50-95 — the strictest,
+localization-sensitive metric — supporting the core hypothesis that
+filtering soil/straw noise before training sharpens the detector's spatial
+precision, not just its coarse recall.
