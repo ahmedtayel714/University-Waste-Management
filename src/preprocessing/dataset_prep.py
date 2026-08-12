@@ -53,10 +53,18 @@ def split_dataset(
     test: float = 0.1,
     seed: int = 42,
     merge_to_single_class: bool = True,
+    class_id_map: dict = None,
 ) -> Path:
     """Copy images + rewritten labels into a standard YOLO train/val/test tree.
-    All class ids in the source labels are collapsed to class 0
-    ('green_vegetation') when merge_to_single_class is True."""
+
+    Class remapping precedence: if class_id_map is given, it wins — keys are
+    source class ids, values are output class ids, and any source id *not*
+    in the map is dropped from that label file entirely (use this for e.g.
+    collapsing TACO's ~60 litter categories down to a handful of waste
+    supercategories, or dropping ones you don't care about). Otherwise falls
+    back to the original behavior: merge_to_single_class=True collapses
+    everything to class 0 ('green_vegetation'); False keeps source ids as-is.
+    """
     assert abs(train + val + test - 1.0) < 1e-6
     out_dir = Path(out_dir)
     rng = random.Random(seed)
@@ -80,16 +88,45 @@ def split_dataset(
 
         for img_path, lbl_path in tqdm(split_pairs, desc=f"split:{split_name}"):
             shutil.copy2(img_path, img_dir / img_path.name)
-            lines = lbl_path.read_text().splitlines()
-            if merge_to_single_class:
-                lines = [
-                    " ".join(["0"] + line.split()[1:])
-                    for line in lines
-                    if line.strip()
-                ]
-            (lbl_dir / lbl_path.with_suffix(".txt").name).write_text("\n".join(lines) + "\n")
+            out_lines = []
+            for line in lbl_path.read_text().splitlines():
+                if not line.strip():
+                    continue
+                parts = line.split()
+                src_cls = int(parts[0])
+                if class_id_map is not None:
+                    if src_cls not in class_id_map:
+                        continue
+                    new_cls = class_id_map[src_cls]
+                elif merge_to_single_class:
+                    new_cls = 0
+                else:
+                    new_cls = src_cls
+                out_lines.append(" ".join([str(new_cls)] + parts[1:]))
+            (lbl_dir / lbl_path.with_suffix(".txt").name).write_text("\n".join(out_lines) + "\n")
 
     return out_dir
+
+
+def find_class_names(root: Path) -> list[str] | None:
+    """Look for a classes.txt (one name per line) or a *.yaml with a 'names'
+    key under root, as many YOLO dataset exports ship one. Returns None if
+    neither is found — inspect_class_distribution's raw ids are all you get."""
+    root = Path(root)
+    classes_txt = next(root.rglob("classes.txt"), None)
+    if classes_txt is not None:
+        return [line.strip() for line in classes_txt.read_text().splitlines() if line.strip()]
+
+    for yaml_path in root.rglob("*.yaml"):
+        try:
+            data = yaml.safe_load(yaml_path.read_text())
+        except yaml.YAMLError:
+            continue
+        if isinstance(data, dict) and "names" in data:
+            names = data["names"]
+            return list(names.values()) if isinstance(names, dict) else list(names)
+
+    return None
 
 
 def build_masked_variant(

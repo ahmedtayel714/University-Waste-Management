@@ -19,16 +19,20 @@ baseline, trained identically otherwise.
 ```
 src/
   preprocessing/
-    hsv_mask.py       # HSV green masking: hard / soft strategies, green-ratio scoring
-    dataset_prep.py    # dataset discovery, single-class merge, split, masked-variant generation
+    hsv_mask.py         # HSV green masking: hard / soft strategies, green-ratio scoring
+    dataset_prep.py     # dataset discovery, class remap/merge, split, masked-variant generation
   training/
-    train.py           # YOLOv8 training wrapper, baseline-vs-masked ablation runner
+    train.py            # YOLOv8 training wrapper, baseline-vs-masked ablation runner
   inference/
-    predict.py         # inference on original RGB + green-ratio false-positive filter
+    predict.py          # inference on original RGB + green-ratio false-positive filter
+    combined_predict.py # runs vegetation + waste models together, merges annotations
+  analysis/
+    leaf_counter.py     # watershed leaf splitting/counting on the green mask
   evaluation/
     metrics.py          # results.csv parsing, loss/mAP curves, baseline-vs-masked comparison
+    report.py           # combined original->mask->detection->leaf-count figure
 notebooks/
-  colab_pipeline.ipynb # end-to-end Colab GPU notebook (the primary way to run this project)
+  colab_pipeline.ipynb  # end-to-end Colab GPU notebook (the primary way to run this project)
 ```
 
 ## Dataset
@@ -97,6 +101,51 @@ mathematically in a report (unlike a learned NMS variant).
 chart of final-epoch precision / recall / mAP50 / mAP50-95 for baseline vs
 masked runs, plus per-run loss and mAP-over-epochs curves. These are the
 figures the competition writeup should lead with.
+
+`src/evaluation/report.py` produces the per-sample story artifact:
+`plot_pipeline_grid()` renders **Original → Green Mask → Masked (training
+view) → Final Detection → Leaf Count** side by side for a handful of
+images — the single figure that shows the whole pipeline working on one
+sample, rather than scattered across separate plots.
+
+## Leaf counting (per-plant, not just per-detection)
+
+`src/analysis/leaf_counter.py` splits and counts individual leaves within
+each detected vegetation box using a **distance-transform watershed** on
+the green mask — no additional training, no new dataset, works today.
+
+This is a classical-CV estimate, not ground truth, and it's honest about
+one specific limitation: it only splits two leaves where their mask
+silhouettes have a visible "neck" between them. Leaves that fully overlap
+in the 2D image projection collapse into one count — there's no depth
+information to disambiguate them from a single photo. If counts look
+systematically off, `fg_ratio` (in `count_leaves`) trades off over- vs
+under-splitting; there's no dataset-independent default that's right for
+every leaf shape and density.
+
+## Waste detection (trash / paper / soil anomalies) — a second model
+
+The vegetation model is intentionally single-purpose: the HSV mask filters
+*for* green, so it structurally cannot detect non-green waste (plastic,
+paper, general rubbish). Rather than retrofit those categories into the
+vegetation model — which would risk changing the already-validated
+baseline-vs-masked ablation results — waste detection is a **separate
+YOLO model**, trained independently on a litter-detection dataset
+(default: [TACO — Trash Annotations in Context, YOLO format](https://www.kaggle.com/datasets/vencerlanz09/taco-dataset-yolo-format)),
+and run alongside the vegetation model at inference time.
+
+`src/inference/combined_predict.py` runs both models on the same image and
+merges their detections into one annotated view — green boxes for
+vegetation, red boxes for waste — without ever merging the models or
+retraining either one on the other's data.
+
+As with the crop/weed dataset, **TACO's exact category scheme must be
+verified after download**, not assumed — the notebook's waste-detection
+section prints the real class distribution and any discoverable class
+names before you commit to a class-grouping map (e.g. collapsing ~60
+fine-grained litter categories down to `plastic` / `paper` / `metal_glass`
+/ `organic` / `other_rubbish`). `dataset_prep.split_dataset()`'s
+`class_id_map` parameter handles the remap-and-drop in one pass.
 
 ## Requirements
 
