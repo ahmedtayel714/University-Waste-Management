@@ -1,5 +1,23 @@
 # University Waste Management & Agricultural Field Monitoring System
 
+Two separate tracks live in this repo. They share tooling (training
+wrapper, metrics/report plotting) but not data, preprocessing, or results —
+each is documented in its own section below.
+
+- **Track A — Vegetation ablation** (complete, validated): does HSV
+  green-masking as a training-time preprocessing step improve YOLO
+  detection of green vegetation against soil/straw noise? Yes — see
+  Results. Untouched by everything below.
+- **Track B — Leaf detection for robotic collection** (new, in progress):
+  detect every tree leaf (dry or fresh) in mixed campus waste, from a
+  synthetically composited dataset, per a robotic-collection system spec.
+  Single class `leaf`, plain-RGB training — green-masking doesn't apply
+  since dry leaves aren't green.
+
+---
+
+# Track A — Vegetation Ablation
+
 Automated detection of green vegetation/waste in agricultural and campus
 field imagery, using HSV color-space masking as a domain-specific noise
 filter ahead of YOLOv8 training, then reprojecting detections onto the
@@ -108,11 +126,14 @@ view) → Final Detection → Leaf Count** side by side for a handful of
 images — the single figure that shows the whole pipeline working on one
 sample, rather than scattered across separate plots.
 
-## Leaf counting (per-plant, not just per-detection)
+## Leaf counting within a vegetation blob (Track A only)
 
+Track A's model detects one box per whole plant, not per leaf, so
 `src/analysis/leaf_counter.py` splits and counts individual leaves within
 each detected vegetation box using a **distance-transform watershed** on
-the green mask — no additional training, no new dataset, works today.
+the green mask — no additional training, no new dataset, works today. (This
+is unrelated to Track B, whose leaf *detector* already produces one box per
+leaf directly — no watershed post-processing needed there.)
 
 This is a classical-CV estimate, not ground truth, and it's honest about
 one specific limitation: it only splits two leaves where their mask
@@ -168,3 +189,93 @@ tracked metric, with the largest gain on mAP50-95 — the strictest,
 localization-sensitive metric — supporting the core hypothesis that
 filtering soil/straw noise before training sharpens the detector's spatial
 precision, not just its coarse recall.
+
+---
+
+# Track B — Leaf Detection for Robotic Collection
+
+Detect every tree leaf (dry or fresh) inside mixed university outdoor
+waste, count it, and expose detections through a structured JSON interface
+a future robotic system can consume — following the full system
+specification's own staged priority (dataset → detection → inference →
+counting/tracking → *then* calibration/robot layers, never the robot
+first). The physical robot does not exist; the software is built so it can
+be added later without redesigning the detection pipeline.
+
+## Why this can't reuse Track A's preprocessing
+
+Track A's core technique — HSV masking to isolate green pixels — is
+useless here: dry fallen leaves are brown/yellow, not green, so a green
+filter would delete the actual detection target. Track B trains on
+plain RGB, no color masking, single class `leaf`.
+
+## Dataset strategy: no usable public dataset exists — composite one
+
+Search turned up nothing usable for "fallen leaves mixed with campus
+waste" or even a plain "empty ground" set (everything found was either
+stock-photo licensed or the wrong domain — live crop leaves, disease-spot
+leaves, pavement-distress research data). So the training set is
+**synthetically composited from four real sources**, each solving a piece
+neither of the others can:
+
+| Source | Role | Where it comes from |
+|---|---|---|
+| Real leaf cutouts | The labeled detection target | Small Roboflow leaf-**segmentation** projects (need pixel masks, not just boxes, for clean silhouettes — see `src/synthetic/cutout_extractor.py`) |
+| Real waste cutouts | Unlabeled visual clutter only — spec explicitly says not to add plastic/paper/etc. as classes | Reused from Track B's own TACO download (bbox crops, feathered edges) |
+| Real backgrounds | Ground/soil/pavement scenes | **Harvested from datasets already on disk** — soil regions of Track A's crop/weed dataset (inverted green mask) + non-litter regions of TACO images. Real photos of real outdoor ground, zero new downloads. |
+| Controlled synthetic generation | Combines the above with randomized geometry | `src/synthetic/compositor.py` — since *we* control the paste, YOLO boxes come out automatically; zero manual annotation |
+
+This pass uses public sources only (no phone photos) by explicit choice —
+the pipeline is dataset-agnostic by design (`discover_pairs`-style
+stem-matching, mask-or-bbox cutout extraction, generic background
+harvesting), so real campus photos can be dropped into the same folder
+structure later with no code changes, matching the spec's own roadmap
+(public data → synthetic → initial model → field validation → fine-tune).
+
+`compositor.py`'s difficulty tiers (`easy`/`medium`/`hard` in
+`DIFFICULTY_PRESETS`) control leaf scale/rotation range, overlap
+probability, edge-cropping (partial occlusion), blur, and shadow — directly
+covering the spec's Section 4 variation list (size, orientation, rotation,
+overlap, occlusion, lighting/shadow, blur, background, density).
+
+## Repository additions
+
+```
+src/
+  synthetic/
+    cutout_extractor.py      # YOLO-seg polygon -> RGBA cutout; bbox -> feathered RGBA; GrabCut fallback for unmasked sources
+    background_harvester.py  # harvest object-free ground patches from datasets we already have
+    compositor.py             # paste engine: randomized geometry, auto-bbox, shadow, difficulty tiers
+    generate_dataset.py       # orchestrates compositor at scale -> full YOLO train/val/test tree
+  inference/
+    track.py                  # Ultralytics native tracking (ByteTrack) + the spec's exact JSON schemas
+```
+
+Training and evaluation reuse Track A's `src/training/train.py` and
+`src/evaluation/metrics.py` unchanged — the wrapper only cares about a
+`data.yaml` path and hyperparameters, not what's in the dataset.
+
+## Interface contract (built now, consumed by nothing yet)
+
+`src/inference/track.py` formats every detection/track to match the
+spec's own JSON shapes exactly (Section 3's per-detection object, Section
+7's tracked-leaf object with persistent `id`, Section 20's `/detections`
+response envelope). No API server or robot code exists yet — the point is
+that the *shape* is fixed now, so a future FastAPI/Flask layer or a real
+robot controller is a thin adapter over this, not a rewrite of the
+detection code.
+
+Tracking itself uses Ultralytics' built-in ByteTrack (`model.track()`)
+rather than a custom tracker — the spec only needs stable per-leaf IDs
+across frames, which the built-in tracker already provides.
+
+## Deferred (by explicit scope decision, not oversight)
+
+Camera calibration, pixel→world coordinate transforms, target selection,
+grasp-point estimation, the robot command API, the robot state machine,
+the safety layer, and the dashboard — spec Sections 8-14 and 16-19. These
+are real, buildable pieces, intentionally left until the leaf detector's
+accuracy is validated on this dataset; building a calibration module
+against a detector that doesn't exist yet would be scaffolding for its own
+sake. Instance segmentation (spec Section 15) is similarly deferred —
+boxes are enough to prove detection works before upgrading to masks.
