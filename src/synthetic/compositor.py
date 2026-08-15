@@ -29,24 +29,33 @@ DIFFICULTY_PRESETS = {
     # entire frame — real piles are spatially concentrated, not just
     # numerous. cluster_spread_frac is the Gaussian std as a fraction of
     # canvas size (smaller = tighter mound).
-    "easy": dict(scale_range=(0.6, 1.0), rotation_range=(-20, 20), overlap_prob=0.05,
+    # leaf_size_frac: target leaf size as a fraction of the canvas's minimum
+    # dimension, NOT a multiplier of the source cutout's own pixel size —
+    # source leaf photos vary wildly in resolution, so a size multiplier
+    # produces wildly inconsistent (often frame-filling, unnaturally huge)
+    # results. See _scale_for_target_size, which converts this into the
+    # actual resize factor per-cutout.
+    "easy": dict(leaf_size_frac=(0.12, 0.28), rotation_range=(-20, 20), overlap_prob=0.05,
                  edge_crop_prob=0.0, blur_prob=0.1, shadow_prob=0.3, waste_count=(0, 1),
                  n_leaves=(2, 6), dry_leaf_prob=0.3, cluster_prob=0.0,
                  n_clusters=(1, 1), cluster_spread_frac=0.2),
-    "medium": dict(scale_range=(0.35, 1.1), rotation_range=(-45, 45), overlap_prob=0.25,
+    "medium": dict(leaf_size_frac=(0.08, 0.2), rotation_range=(-45, 45), overlap_prob=0.25,
                    edge_crop_prob=0.1, blur_prob=0.25, shadow_prob=0.5, waste_count=(0, 3),
                    n_leaves=(6, 14), dry_leaf_prob=0.4, cluster_prob=0.2,
                    n_clusters=(1, 2), cluster_spread_frac=0.18),
-    "hard": dict(scale_range=(0.25, 1.2), rotation_range=(-90, 90), overlap_prob=0.5,
+    "hard": dict(leaf_size_frac=(0.05, 0.16), rotation_range=(-90, 90), overlap_prob=0.5,
                  edge_crop_prob=0.25, blur_prob=0.4, shadow_prob=0.6, waste_count=(1, 5),
                  n_leaves=(12, 22), dry_leaf_prob=0.5, cluster_prob=0.45,
                  n_clusters=(1, 2), cluster_spread_frac=0.15),
     # Dense leaf-litter / pile scenes — real photos of leaf piles, garden-
     # waste bags, and litter holes look nothing like a handful of scattered
-    # leaves; this tier exists specifically to cover that case. dry_leaf_prob
-    # is high since real piles skew heavily toward dry/brown leaves, and
-    # cluster_prob is near-1 so the leaf count actually reads as a mound.
-    "pile": dict(scale_range=(0.3, 0.9), rotation_range=(-180, 180), overlap_prob=0.85,
+    # leaves; this tier exists specifically to cover that case. Individual
+    # leaves stay small (0.03-0.1 of canvas) so a 20-45 count reads as a
+    # pile of small-to-medium leaves, not a few giant ones filling the
+    # frame. dry_leaf_prob is high since real piles skew heavily toward
+    # dry/brown leaves, and cluster_prob is near-1 so the count actually
+    # reads as a mound.
+    "pile": dict(leaf_size_frac=(0.03, 0.1), rotation_range=(-180, 180), overlap_prob=0.85,
                  edge_crop_prob=0.35, blur_prob=0.3, shadow_prob=0.4, waste_count=(0, 4),
                  n_leaves=(20, 45), dry_leaf_prob=0.7, cluster_prob=0.9,
                  n_clusters=(1, 2), cluster_spread_frac=0.13),
@@ -72,11 +81,16 @@ def _tint_dry(cutout_rgba: np.ndarray, rng: random.Random) -> np.ndarray:
     # Target hue ~15-30 (yellow/orange/brown in OpenCV's 0-179 scale),
     # desaturate and darken somewhat — a green leaf (hue ~35-85) pulled
     # this direction reads as dried/dead rather than a different plant.
-    target_hue = rng.uniform(12, 28)
-    pull = rng.uniform(0.55, 0.9)
+    # pull is deliberately high (mostly >0.75): a partial pull leaves hue
+    # stuck between green and brown, which reads as a muddy/unnatural
+    # khaki rather than a convincing dry leaf — go most of the way there
+    # or don't bother. Saturation stays fairly high too: real dry leaves
+    # are often a vivid orange/rust, not a desaturated grey-brown.
+    target_hue = rng.uniform(10, 25)
+    pull = rng.uniform(0.75, 0.98)
     hsv[:, :, 0] = hsv[:, :, 0] * (1 - pull) + target_hue * pull
-    hsv[:, :, 1] *= rng.uniform(0.45, 0.75)
-    hsv[:, :, 2] *= rng.uniform(0.7, 0.95)
+    hsv[:, :, 1] *= rng.uniform(0.6, 0.95)
+    hsv[:, :, 2] *= rng.uniform(0.8, 1.0)
     hsv = np.clip(hsv, 0, 255).astype(np.uint8)
 
     tinted_bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
@@ -141,6 +155,16 @@ def _alpha_blend(background: np.ndarray, fg_bgr: np.ndarray, alpha: np.ndarray, 
     background[by0:by1, bx0:bx1] = (fg * a + roi * (1 - a)).astype(np.uint8)
 
 
+def _scale_for_target_size(cutout_rgba: np.ndarray, target_frac: float, canvas_min_dim: int) -> float:
+    """Convert a target size (fraction of the canvas's min dimension) into
+    the resize factor for this specific cutout, based on its own largest
+    dimension — this is what makes leaf_size_frac produce a consistent
+    on-screen size regardless of the source cutout's raw resolution."""
+    src_dim = max(cutout_rgba.shape[0], cutout_rgba.shape[1])
+    target_px = target_frac * canvas_min_dim
+    return target_px / src_dim
+
+
 def _sample_position(rng: random.Random, w: int, h: int, cw: int, ch: int,
                       cluster_centers: list, spread: float, margin_x: int, margin_y: int) -> tuple:
     """Pick a paste position for a cutout of size (cw, ch) on a w x h
@@ -196,12 +220,14 @@ def compose_scene(
         ]
     spread = preset["cluster_spread_frac"] * min(w, h)
 
+    canvas_min_dim = min(w, h)
     n_leaf = rng.randint(*leaves_range)
     for _ in range(n_leaf):
         cutout = rng.choice(leaf_cutouts)
         if rng.random() < preset["dry_leaf_prob"]:
             cutout = _tint_dry(cutout, rng)
-        scale = rng.uniform(*preset["scale_range"])
+        target_frac = rng.uniform(*preset["leaf_size_frac"])
+        scale = _scale_for_target_size(cutout, target_frac, canvas_min_dim)
         angle = rng.uniform(*preset["rotation_range"])
         transformed = _transform_cutout(cutout, scale, angle)
         ch, cw = transformed.shape[:2]
@@ -231,7 +257,7 @@ def compose_scene(
         n_waste = rng.randint(*preset["waste_count"])
         for _ in range(n_waste):
             cutout = rng.choice(waste_cutouts)
-            scale = rng.uniform(0.5, 1.3)
+            scale = _scale_for_target_size(cutout, rng.uniform(0.05, 0.18), canvas_min_dim)
             angle = rng.uniform(-30, 30)
             transformed = _transform_cutout(cutout, scale, angle)
             ch, cw = transformed.shape[:2]
