@@ -59,7 +59,19 @@ def plot_map_curves(df: pd.DataFrame, out_path: str, title: str = "mAP over trai
     _save(fig, out_path)
 
 
-def compare_runs(baseline_dir: str, masked_dir: str, out_path: str) -> dict:
+def compare_runs(
+    baseline_dir: str,
+    masked_dir: str,
+    out_path: str,
+    baseline_label: str = "baseline (unmasked)",
+    masked_label: str = "HSV-masked",
+    title: str = "Baseline vs HSV-Masked Preprocessing — Final Metrics",
+) -> dict:
+    """Generic two-run comparison — the baseline_dir/masked_dir/baseline_label/
+    masked_label names are Track A's original vocabulary, kept as defaults so
+    existing calls (and the already-reported Track A figure) reproduce
+    identically. Pass custom labels/title for any other two-run comparison,
+    e.g. leaf vs leaf_v2."""
     baseline_df = load_results_csv(baseline_dir)
     masked_df = load_results_csv(masked_dir)
     baseline_final = summarize_final_metrics(baseline_df)
@@ -72,12 +84,12 @@ def compare_runs(baseline_dir: str, masked_dir: str, out_path: str) -> dict:
     x = range(len(labels))
     width = 0.35
     fig, ax = plt.subplots(figsize=(8, 5))
-    ax.bar([i - width / 2 for i in x], baseline_vals, width, label="baseline (unmasked)")
-    ax.bar([i + width / 2 for i in x], masked_vals, width, label="HSV-masked")
+    ax.bar([i - width / 2 for i in x], baseline_vals, width, label=baseline_label)
+    ax.bar([i + width / 2 for i in x], masked_vals, width, label=masked_label)
     ax.set_xticks(list(x))
     ax.set_xticklabels(labels)
     ax.set_ylim(0, 1.0)
-    ax.set_title("Baseline vs HSV-Masked Preprocessing — Final Metrics")
+    ax.set_title(title)
     ax.legend()
     for i, (b, m) in enumerate(zip(baseline_vals, masked_vals)):
         ax.text(i - width / 2, b + 0.01, f"{b:.3f}", ha="center", fontsize=8)
