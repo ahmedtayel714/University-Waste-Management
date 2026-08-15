@@ -12,7 +12,7 @@ from tqdm import tqdm
 from .compositor import compose_scene
 from ..preprocessing.dataset_prep import write_data_yaml
 
-DEFAULT_DIFFICULTY_MIX = {"easy": 0.3, "medium": 0.4, "hard": 0.3}
+DEFAULT_DIFFICULTY_MIX = {"easy": 0.2, "medium": 0.3, "hard": 0.25, "pile": 0.25}
 
 
 def _load_rgba(paths: list) -> list:
@@ -87,10 +87,15 @@ def generate_synthetic_dataset(
     n_val: int = 150,
     n_test: int = 150,
     difficulty_mix: dict = None,
-    n_leaves_range: tuple = (2, 8),
+    n_leaves_range: tuple = None,
     canvas_size: tuple = (640, 640),
     seed: int = 42,
 ) -> Path:
+    """n_leaves_range=None (default) lets each difficulty tier use its own
+    density (see compositor.DIFFICULTY_PRESETS) — 'pile' scenes get far
+    more leaves than 'easy' ones by design. Pass an explicit tuple to
+    override every tier uniformly, matching the original single-density
+    behavior from before the 'pile' tier existed."""
     if not leaf_cutout_paths:
         raise ValueError("leaf_cutout_paths is empty — build the cutout library first")
     if not background_paths:

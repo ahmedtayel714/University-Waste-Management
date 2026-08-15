@@ -18,12 +18,38 @@ import cv2
 import numpy as np
 
 DIFFICULTY_PRESETS = {
+    # n_leaves is this tier's own density range, used when compose_scene's
+    # n_leaves argument is left as None (see compose_scene) — an explicit
+    # n_leaves still overrides every tier uniformly, for backward
+    # compatibility with earlier datasets/results built that way.
+    # cluster_prob: chance this scene concentrates leaves around 1-2 mound
+    # centers (Gaussian scatter, see _sample_position) instead of placing
+    # each leaf fully independently across the whole canvas. Without this,
+    # even a high leaf count just looks like thin confetti spread over the
+    # entire frame — real piles are spatially concentrated, not just
+    # numerous. cluster_spread_frac is the Gaussian std as a fraction of
+    # canvas size (smaller = tighter mound).
     "easy": dict(scale_range=(0.6, 1.0), rotation_range=(-20, 20), overlap_prob=0.05,
-                 edge_crop_prob=0.0, blur_prob=0.1, shadow_prob=0.3, waste_count=(0, 1)),
+                 edge_crop_prob=0.0, blur_prob=0.1, shadow_prob=0.3, waste_count=(0, 1),
+                 n_leaves=(2, 6), dry_leaf_prob=0.3, cluster_prob=0.0,
+                 n_clusters=(1, 1), cluster_spread_frac=0.2),
     "medium": dict(scale_range=(0.35, 1.1), rotation_range=(-45, 45), overlap_prob=0.25,
-                   edge_crop_prob=0.1, blur_prob=0.25, shadow_prob=0.5, waste_count=(0, 3)),
-    "hard": dict(scale_range=(0.2, 1.2), rotation_range=(-90, 90), overlap_prob=0.5,
-                 edge_crop_prob=0.25, blur_prob=0.4, shadow_prob=0.6, waste_count=(1, 5)),
+                   edge_crop_prob=0.1, blur_prob=0.25, shadow_prob=0.5, waste_count=(0, 3),
+                   n_leaves=(6, 14), dry_leaf_prob=0.4, cluster_prob=0.2,
+                   n_clusters=(1, 2), cluster_spread_frac=0.18),
+    "hard": dict(scale_range=(0.25, 1.2), rotation_range=(-90, 90), overlap_prob=0.5,
+                 edge_crop_prob=0.25, blur_prob=0.4, shadow_prob=0.6, waste_count=(1, 5),
+                 n_leaves=(12, 22), dry_leaf_prob=0.5, cluster_prob=0.45,
+                 n_clusters=(1, 2), cluster_spread_frac=0.15),
+    # Dense leaf-litter / pile scenes — real photos of leaf piles, garden-
+    # waste bags, and litter holes look nothing like a handful of scattered
+    # leaves; this tier exists specifically to cover that case. dry_leaf_prob
+    # is high since real piles skew heavily toward dry/brown leaves, and
+    # cluster_prob is near-1 so the leaf count actually reads as a mound.
+    "pile": dict(scale_range=(0.3, 0.9), rotation_range=(-180, 180), overlap_prob=0.85,
+                 edge_crop_prob=0.35, blur_prob=0.3, shadow_prob=0.4, waste_count=(0, 4),
+                 n_leaves=(20, 45), dry_leaf_prob=0.7, cluster_prob=0.9,
+                 n_clusters=(1, 2), cluster_spread_frac=0.13),
 }
 
 
@@ -31,6 +57,30 @@ DIFFICULTY_PRESETS = {
 class SceneResult:
     image: np.ndarray
     boxes: list  # list of (cx, cy, w, h) normalized YOLO coords, class "leaf" implicit
+
+
+def _tint_dry(cutout_rgba: np.ndarray, rng: random.Random) -> np.ndarray:
+    """Shift a leaf cutout's color toward dry brown/yellow, roughly
+    simulating a dead/fallen leaf from a fresh-green source cutout —
+    the leaf-segmentation source dataset skews toward fresh green leaves,
+    so this is how color diversity gets into the synthetic set without a
+    second dataset download. Alpha channel is untouched."""
+    bgr = cutout_rgba[:, :, :3]
+    alpha = cutout_rgba[:, :, 3]
+
+    hsv = cv2.cvtColor(bgr, cv2.COLOR_BGR2HSV).astype(np.float32)
+    # Target hue ~15-30 (yellow/orange/brown in OpenCV's 0-179 scale),
+    # desaturate and darken somewhat — a green leaf (hue ~35-85) pulled
+    # this direction reads as dried/dead rather than a different plant.
+    target_hue = rng.uniform(12, 28)
+    pull = rng.uniform(0.55, 0.9)
+    hsv[:, :, 0] = hsv[:, :, 0] * (1 - pull) + target_hue * pull
+    hsv[:, :, 1] *= rng.uniform(0.45, 0.75)
+    hsv[:, :, 2] *= rng.uniform(0.7, 0.95)
+    hsv = np.clip(hsv, 0, 255).astype(np.uint8)
+
+    tinted_bgr = cv2.cvtColor(hsv, cv2.COLOR_HSV2BGR)
+    return np.dstack([tinted_bgr, alpha])
 
 
 def _transform_cutout(cutout_rgba: np.ndarray, scale: float, angle: float) -> np.ndarray:
@@ -91,29 +141,66 @@ def _alpha_blend(background: np.ndarray, fg_bgr: np.ndarray, alpha: np.ndarray, 
     background[by0:by1, bx0:bx1] = (fg * a + roi * (1 - a)).astype(np.uint8)
 
 
+def _sample_position(rng: random.Random, w: int, h: int, cw: int, ch: int,
+                      cluster_centers: list, spread: float, margin_x: int, margin_y: int) -> tuple:
+    """Pick a paste position for a cutout of size (cw, ch) on a w x h
+    canvas. With cluster_centers, samples from a Gaussian around a random
+    chosen center (mound effect); otherwise uniform across the canvas
+    (the original scattered behavior)."""
+    if cluster_centers:
+        ccx, ccy = rng.choice(cluster_centers)
+        x = int(rng.gauss(ccx, spread) - cw / 2)
+        y = int(rng.gauss(ccy, spread) - ch / 2)
+        x = max(-margin_x, min(x, w - cw + margin_x))
+        y = max(-margin_y, min(y, h - ch + margin_y))
+        return x, y
+    return (
+        rng.randint(-margin_x, max(w - cw + margin_x, -margin_x)),
+        rng.randint(-margin_y, max(h - ch + margin_y, -margin_y)),
+    )
+
+
 def compose_scene(
     background_bgr: np.ndarray,
     leaf_cutouts: list,
     waste_cutouts: list = None,
-    n_leaves: tuple = (2, 8),
+    n_leaves: tuple = None,
     difficulty: str = "medium",
     seed: int = None,
 ) -> SceneResult:
     """Paste a random number of leaf cutouts (labeled) and difficulty-scaled
     waste cutouts (unlabeled clutter) onto background_bgr. Returns the
-    composited image and YOLO-normalized boxes for the leaves only."""
+    composited image and YOLO-normalized boxes for the leaves only.
+
+    n_leaves=None (default) uses the difficulty preset's own density range
+    — 'pile' is dramatically denser than 'easy' by design, simulating real
+    leaf-litter photos rather than a handful of scattered leaves. Pass an
+    explicit n_leaves to override every tier uniformly, matching the
+    original single-density behavior."""
     if difficulty not in DIFFICULTY_PRESETS:
         raise ValueError(f"difficulty must be one of {list(DIFFICULTY_PRESETS)}")
     preset = DIFFICULTY_PRESETS[difficulty]
     rng = random.Random(seed)
+    leaves_range = n_leaves if n_leaves is not None else preset["n_leaves"]
 
     canvas = background_bgr.copy()
     h, w = canvas.shape[:2]
     boxes = []
 
-    n_leaf = rng.randint(*n_leaves)
+    cluster_centers = []
+    if rng.random() < preset["cluster_prob"]:
+        n_clusters = rng.randint(*preset["n_clusters"])
+        cluster_centers = [
+            (rng.uniform(0.2 * w, 0.8 * w), rng.uniform(0.2 * h, 0.8 * h))
+            for _ in range(n_clusters)
+        ]
+    spread = preset["cluster_spread_frac"] * min(w, h)
+
+    n_leaf = rng.randint(*leaves_range)
     for _ in range(n_leaf):
         cutout = rng.choice(leaf_cutouts)
+        if rng.random() < preset["dry_leaf_prob"]:
+            cutout = _tint_dry(cutout, rng)
         scale = rng.uniform(*preset["scale_range"])
         angle = rng.uniform(*preset["rotation_range"])
         transformed = _transform_cutout(cutout, scale, angle)
@@ -124,8 +211,7 @@ def compose_scene(
         edge_crop = rng.random() < preset["edge_crop_prob"]
         margin_x = int(cw * 0.4) if edge_crop else 0
         margin_y = int(ch * 0.4) if edge_crop else 0
-        x = rng.randint(-margin_x, max(w - cw + margin_x, -margin_x))
-        y = rng.randint(-margin_y, max(h - ch + margin_y, -margin_y))
+        x, y = _sample_position(rng, w, h, cw, ch, cluster_centers, spread, margin_x, margin_y)
 
         with_shadow = rng.random() < preset["shadow_prob"]
         _paste_with_shadow(canvas, transformed, x, y, with_shadow)
