@@ -51,16 +51,29 @@ def harvest_from_green_dataset(
     max_green_ratio: float = 0.03,
     mask_config: MaskConfig = None,
     seed: int = 42,
+    max_source_images: int = 150,
 ) -> list:
     """Sample patch_size x patch_size crops from crop/weed images that are
     (a) almost entirely non-green (max_green_ratio ceiling) and (b) don't
-    overlap any labeled bounding box, i.e. soil/background only."""
+    overlap any labeled bounding box, i.e. soil/background only.
+
+    max_source_images caps how many *source* images get opened at all
+    (randomly sampled) — this reads full image content (cv2.imread), not
+    just filenames, so on a Drive-mounted image_label_pairs list an
+    unbounded pass here means hundreds/thousands of network round-trips.
+    We only need enough patches for background variety, not one from
+    every source image; 150 is already generous for that. Set None for
+    the old unbounded behavior (fine if the source images are local)."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)
     written = []
 
-    for img_path, lbl_path in image_label_pairs:
+    pairs = image_label_pairs
+    if max_source_images is not None and len(pairs) > max_source_images:
+        pairs = rng.sample(list(pairs), max_source_images)
+
+    for img_path, lbl_path in pairs:
         image = cv2.imread(str(img_path))
         if image is None:
             continue
@@ -98,16 +111,22 @@ def harvest_from_boxed_dataset(
     patch_size: int = 256,
     patches_per_image: int = 2,
     seed: int = 42,
+    max_source_images: int = 150,
 ) -> list:
     """Sample patches from a YOLO-labeled dataset (e.g. TACO) that avoid
     every labeled bounding box — generic version for sources without a
-    color-based background test."""
+    color-based background test. See harvest_from_green_dataset's
+    max_source_images docstring — same reasoning, same default."""
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)
     written = []
 
-    for img_path, lbl_path in image_label_pairs:
+    pairs = image_label_pairs
+    if max_source_images is not None and len(pairs) > max_source_images:
+        pairs = rng.sample(list(pairs), max_source_images)
+
+    for img_path, lbl_path in pairs:
         image = cv2.imread(str(img_path))
         if image is None:
             continue

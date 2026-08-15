@@ -8,6 +8,7 @@ cells wired together by hand.
 The individual modules stay independently usable — this is a convenience
 layer on top, not a replacement API."""
 
+import random
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,7 +40,9 @@ def build_leaf_dataset(
     canvas_size: tuple = (640, 640),
     difficulty_mix: dict = None,
     mask_config: MaskConfig = None,
-    waste_cutout_cap: int = 400,
+    waste_cutout_cap: int = 150,
+    veg_background_source_cap: int = 150,
+    waste_background_source_cap: int = 150,
     seed: int = 42,
 ) -> LeafPipelineResult:
     """Run the full Track B dataset pipeline in one call.
@@ -52,6 +55,17 @@ def build_leaf_dataset(
     work_dir: local staging directory (should be on local disk, not Drive —
         see README's local-disk-staging note; this function doesn't care,
         it just writes wherever it's told).
+
+    veg_dataset_pairs/waste_dataset_pairs typically point at Drive-mounted
+    raw folders (they're already-downloaded Track A/waste data, never
+    re-staged locally) — every image this function actually *opens*
+    (cv2.imread, not just the filename) is one Drive network round-trip.
+    waste_cutout_cap/veg_background_source_cap/waste_background_source_cap
+    all bound how many source images get opened, via random sampling —
+    without these caps this function silently reads every image in both
+    datasets (1000s of Drive round-trips, easily 10+ minutes) for what
+    only needs a few hundred output images. Lower them further if it's
+    still slow; raise them only if the source datasets are also local.
     """
     work_dir = Path(work_dir)
     difficulty_mix = difficulty_mix or DEFAULT_DIFFICULTY_MIX
@@ -67,7 +81,13 @@ def build_leaf_dataset(
     waste_cutout_dir = work_dir / "waste_cutouts"
     waste_cutout_dir.mkdir(parents=True, exist_ok=True)
     waste_cutout_paths = []
-    for img_path, lbl_path in waste_dataset_pairs[:waste_cutout_cap]:
+    rng = random.Random(seed)
+    sampled_waste_pairs = (
+        rng.sample(list(waste_dataset_pairs), waste_cutout_cap)
+        if waste_cutout_cap is not None and len(waste_dataset_pairs) > waste_cutout_cap
+        else waste_dataset_pairs
+    )
+    for img_path, lbl_path in sampled_waste_pairs:
         import cv2
 
         image = cv2.imread(str(img_path))
@@ -91,10 +111,11 @@ def build_leaf_dataset(
     background_dir = work_dir / "backgrounds"
     bg_from_green = harvest_from_green_dataset(
         veg_dataset_pairs, background_dir / "from_veg", patch_size=256, patches_per_image=2,
-        mask_config=mask_config,
+        mask_config=mask_config, max_source_images=veg_background_source_cap,
     )
     bg_from_waste = harvest_from_boxed_dataset(
         waste_dataset_pairs, background_dir / "from_waste", patch_size=256, patches_per_image=1,
+        max_source_images=waste_background_source_cap,
     )
     background_paths = bg_from_green + bg_from_waste
     if not background_paths:
