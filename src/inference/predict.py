@@ -30,16 +30,20 @@ def predict_image(
     conf: float = 0.25,
     green_ratio_threshold: float = None,
     mask_config: MaskConfig = None,
+    augment: bool = False,
 ) -> tuple[np.ndarray, list[Detection]]:
     """Run detection on one image. If green_ratio_threshold is set, detections
     whose box interior is less than that fraction green (in HSV space) are
-    dropped as likely soil/straw false positives."""
+    dropped as likely soil/straw false positives. augment=True enables
+    Ultralytics' test-time augmentation (multi-scale + flip, averaged) —
+    catches small/marginal detections at the cost of ~2-3x slower inference,
+    so it's off by default and meant for final evaluation, not live video."""
     model = YOLO(weights_path)
     image = cv2.imread(str(image_path))
     if image is None:
         raise FileNotFoundError(image_path)
 
-    results = model.predict(image, conf=conf, verbose=False)[0]
+    results = model.predict(image, conf=conf, augment=augment, verbose=False)[0]
 
     detections = []
     for box in results.boxes:
@@ -79,8 +83,9 @@ def predict_and_save(
     green_ratio_threshold: float = None,
     mask_config: MaskConfig = None,
     class_names: list[str] = None,
+    augment: bool = False,
 ) -> Path:
-    image, detections = predict_image(weights_path, image_path, conf, green_ratio_threshold, mask_config)
+    image, detections = predict_image(weights_path, image_path, conf, green_ratio_threshold, mask_config, augment)
     annotated = draw_detections(image, detections, class_names)
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)

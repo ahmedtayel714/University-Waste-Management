@@ -31,6 +31,12 @@ class TrainConfig:
     scale: float = 0.4
     fliplr: float = 0.5
     mosaic: float = 1.0
+    # Off by default (0.0) so existing calls — including Track A's already
+    # -reported baseline/masked runs — reproduce identically. Set explicitly
+    # to opt in (e.g. Track B's leaf_v2 run).
+    mixup: float = 0.0
+    perspective: float = 0.0
+    close_mosaic: int = 10
     extra_overrides: dict = field(default_factory=dict)
 
 
@@ -54,6 +60,9 @@ def train(config: TrainConfig):
         scale=config.scale,
         fliplr=config.fliplr,
         mosaic=config.mosaic,
+        mixup=config.mixup,
+        perspective=config.perspective,
+        close_mosaic=config.close_mosaic,
         plots=True,
     )
     overrides.update(config.extra_overrides)

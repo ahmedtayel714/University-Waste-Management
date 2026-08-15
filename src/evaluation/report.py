@@ -16,8 +16,8 @@ BASE_STAGE_TITLES = ("Original", "Green Mask", "Masked (training view)", "Final 
 LEAF_STAGE_TITLE = "Leaf Count (watershed)"
 
 
-def _detect(model, image, conf, green_ratio_threshold, mask_config):
-    results = model.predict(image, conf=conf, verbose=False)[0]
+def _detect(model, image, conf, green_ratio_threshold, mask_config, augment=False):
+    results = model.predict(image, conf=conf, augment=augment, verbose=False)[0]
     detections = []
     for box in results.boxes:
         xyxy = tuple(box.xyxy[0].tolist())
@@ -39,6 +39,7 @@ def plot_pipeline_grid(
     show_leaf_count: bool = True,
     leaf_min_area: int = 120,
     leaf_fg_ratio: float = 0.35,
+    augment: bool = False,
 ) -> Path:
     """Save a len(image_paths) x (4 or 5) grid: Original | Green Mask |
     Masked (training view) | Final Detection | [Leaf Count]. Detection runs
@@ -61,7 +62,7 @@ def plot_pipeline_grid(
 
         mask = green_mask(image, mask_config)
         masked = apply_mask_soft(image, mask)
-        detections = _detect(model, image, conf, green_ratio_threshold, mask_config)
+        detections = _detect(model, image, conf, green_ratio_threshold, mask_config, augment)
         detected = draw_detections(image, detections, class_names)
 
         stage_images = [

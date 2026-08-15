@@ -24,8 +24,8 @@ class CombinedResult:
     waste: list
 
 
-def _run_model(model, image, conf):
-    results = model.predict(image, conf=conf, verbose=False)[0]
+def _run_model(model, image, conf, augment=False):
+    results = model.predict(image, conf=conf, augment=augment, verbose=False)[0]
     return [
         Detection(box=tuple(box.xyxy[0].tolist()), conf=float(box.conf[0]), cls=int(box.cls[0]))
         for box in results.boxes
@@ -42,6 +42,7 @@ def predict_combined(
     waste_class_names: list = None,
     veg_green_ratio_threshold: float = None,
     mask_config: MaskConfig = None,
+    augment: bool = False,
 ):
     """Returns (annotated_image_bgr, CombinedResult). Vegetation boxes drawn
     green, waste boxes drawn red — same image, two independent model passes."""
@@ -54,13 +55,13 @@ def predict_combined(
     if image is None:
         raise FileNotFoundError(image_path)
 
-    veg_detections = _run_model(veg_model, image, veg_conf)
+    veg_detections = _run_model(veg_model, image, veg_conf, augment)
     if veg_green_ratio_threshold is not None:
         veg_detections = [
             d for d in veg_detections
             if green_pixel_ratio(image, d.box, mask_config) >= veg_green_ratio_threshold
         ]
-    waste_detections = _run_model(waste_model, image, waste_conf)
+    waste_detections = _run_model(waste_model, image, waste_conf, augment)
 
     annotated = draw_detections(image, veg_detections, veg_class_names, VEG_COLOR)
     annotated = draw_detections(annotated, waste_detections, waste_class_names, WASTE_COLOR)

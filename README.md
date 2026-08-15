@@ -247,8 +247,12 @@ src/
     background_harvester.py  # harvest object-free ground patches from datasets we already have
     compositor.py             # paste engine: randomized geometry, auto-bbox, shadow, difficulty tiers
     generate_dataset.py       # orchestrates compositor at scale -> full YOLO train/val/test tree
+    pipeline.py                # single build_leaf_dataset() call wrapping all of the above
   inference/
-    track.py                  # Ultralytics native tracking (ByteTrack) + the spec's exact JSON schemas
+    track.py                  # Ultralytics native tracking (ByteTrack) + the spec's exact JSON schemas + EMA smoothing
+    error_logger.py            # low-confidence detection snapshots + JSONL index, for active learning
+  evaluation/
+    field_validation.py        # real-photo validation harness (detection stats, or real mAP if labeled)
 ```
 
 Training and evaluation reuse Track A's `src/training/train.py` and
@@ -279,3 +283,77 @@ accuracy is validated on this dataset; building a calibration module
 against a detector that doesn't exist yet would be scaffolding for its own
 sake. Instance segmentation (spec Section 15) is similarly deferred —
 boxes are enough to prove detection works before upgrading to masks.
+
+---
+
+# Roadmap Improvements (Part 3)
+
+A set of targeted improvements on top of the trained `leaf` model,
+implemented from an internal improvements roadmap. **None of these change
+Track A's baseline/masked results or the original `leaf` run** — every
+new experiment gets a new name (`leaf_v2`) rather than overwriting an
+already-reported result, and every new function parameter defaults to the
+old behavior (off) unless explicitly opted into.
+
+## Augmentation: mixup + random perspective
+
+`TrainConfig` already had mosaic and HSV jitter; `mixup` and
+`perspective` were the two missing pieces, added as opt-in fields
+(default `0.0`, matching Ultralytics' pre-existing off-state, so any
+existing `TrainConfig(...)` call reproduces identically unless it sets
+these explicitly). Applied to a new `leaf_v2` run trained on the *same*
+synthetic dataset as `leaf` — augmentation isolated as the only variable,
+same ablation principle used for baseline-vs-masked in Track A.
+
+## Test-time augmentation (TTA)
+
+`augment: bool = False` threaded through every inference entry point
+(`predict.py`, `report.py`, `track.py`, `combined_predict.py`).
+Ultralytics runs multi-scale + flip inference and averages the result —
+catches small/marginal detections at ~2-3x slower inference. Meant for a
+final careful evaluation pass, not live video (the cost compounds per
+frame there).
+
+## Temporal smoothing — EMA, not Kalman
+
+`TrackSmoother` in `track.py` applies an exponential moving average to
+each tracked leaf's center coordinates, keyed by track id. This was a
+deliberate simplification versus a full Kalman filter: a Kalman filter
+models velocity/acceleration and needs process-noise tuning to get right;
+EMA needs one parameter (`alpha`) and no motion model, and achieves the
+same practical goal stated in the roadmap — smooth, non-jittery
+coordinates for a downstream robot controller — with a fraction of the
+code. Revisit with a real Kalman filter only if velocity/acceleration
+estimates become actually necessary, not just smoothed position.
+`track_video(..., smooth=True)` opts in; default is `False` so an
+already-captured tracking sample stays reproducible.
+
+## Unified Track B pipeline
+
+`src/synthetic/pipeline.py`'s `build_leaf_dataset()` wraps cutout
+extraction (leaf + waste) → background harvesting → synthetic generation
+behind one call, for rebuilding the dataset from scratch without wiring
+six notebook cells together by hand each time. The individual modules
+stay independently usable — this is a convenience layer, not a
+replacement API.
+
+## Error logging for active learning
+
+`LowConfidenceLogger` (`src/inference/error_logger.py`) saves an
+annotated snapshot plus a JSONL index entry for every inference where at
+least one detection falls under a confidence threshold (default `0.5`).
+Run it over a test/validation split, or in production, and the output is
+a ready-made relabeling queue — the exact "blacklist of challenging
+scenarios" the roadmap asked for.
+
+## Real-world field validation harness
+
+`src/evaluation/field_validation.py`'s `run_field_validation()` is built
+and tested, but **cannot run meaningfully yet — there are no real
+validation photos**. Point it at a folder with an `images/` subfolder and
+it reports detection-rate and confidence statistics; add a matching
+`labels/` subfolder in YOLO format and it additionally computes real
+mAP/precision/recall via Ultralytics' own validation path — the actual
+number that would move Track B from "trained" to "validated" per the
+roadmap's stated goal. This is the one roadmap item that isn't a code
+problem: it's waiting on real photos, not on more engineering.
