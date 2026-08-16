@@ -59,6 +59,22 @@ DIFFICULTY_PRESETS = {
                  edge_crop_prob=0.35, blur_prob=0.3, shadow_prob=0.4, waste_count=(0, 4),
                  n_leaves=(20, 45), dry_leaf_prob=0.7, cluster_prob=0.9,
                  n_clusters=(1, 2), cluster_spread_frac=0.13),
+    # Sparse, independently-scattered leaves on open ground (asphalt/dirt),
+    # sometimes mixed with litter — the dominant pattern in real reference
+    # photos of campus paths and sidewalks, and notably NOT a mound: leaves
+    # land individually as they fall/blow, spread across the whole frame
+    # with little to no overlap, unlike 'pile'. cluster_prob=0 keeps
+    # placement uniform across the canvas rather than mounded.
+    # leaf_size_frac is on the larger side since individual scattered
+    # leaves tend to be clearly resolved, not tiny/distant. dry_leaf_prob
+    # sits in the middle since real scatter scenes range from mostly-dry
+    # (fallen autumn leaves on pavement) to mostly-green (fresh leaves
+    # knocked down amid litter) — no single value matches both, so this
+    # samples per-leaf across that range rather than committing to one end.
+    "scatter": dict(leaf_size_frac=(0.06, 0.16), rotation_range=(-180, 180), overlap_prob=0.05,
+                    edge_crop_prob=0.15, blur_prob=0.15, shadow_prob=0.5, waste_count=(0, 5),
+                    n_leaves=(8, 20), dry_leaf_prob=0.45, cluster_prob=0.0,
+                    n_clusters=(1, 1), cluster_spread_frac=0.2),
 }
 
 

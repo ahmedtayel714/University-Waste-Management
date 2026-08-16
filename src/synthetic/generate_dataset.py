@@ -12,7 +12,10 @@ from tqdm import tqdm
 from .compositor import compose_scene
 from ..preprocessing.dataset_prep import write_data_yaml
 
-DEFAULT_DIFFICULTY_MIX = {"easy": 0.2, "medium": 0.3, "hard": 0.25, "pile": 0.25}
+# 'scatter' gets the largest share: real reference photos of campus paths
+# and sidewalks predominantly show individually scattered leaves (not
+# mounded piles), so that pattern should dominate what the model trains on.
+DEFAULT_DIFFICULTY_MIX = {"easy": 0.15, "medium": 0.2, "hard": 0.15, "pile": 0.15, "scatter": 0.35}
 
 
 def _load_rgba(paths: list) -> list:
