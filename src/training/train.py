@@ -37,6 +37,14 @@ class TrainConfig:
     mixup: float = 0.0
     perspective: float = 0.0
     close_mosaic: int = 10
+    # Ultralytics defaults this to True, which calls
+    # torch.use_deterministic_algorithms() — on some Colab images this
+    # pulls in torch._inductor -> triton and crashes with
+    # "module 'triton.backends' has no attribute 'compiler'" on a broken
+    # triton/torch pairing, before training even starts. False avoids that
+    # import path entirely; run-to-run reproducibility still comes from
+    # `seed` above, just not bit-exact GPU determinism.
+    deterministic: bool = False
     extra_overrides: dict = field(default_factory=dict)
 
 
@@ -63,6 +71,7 @@ def train(config: TrainConfig):
         mixup=config.mixup,
         perspective=config.perspective,
         close_mosaic=config.close_mosaic,
+        deterministic=config.deterministic,
         plots=True,
     )
     overrides.update(config.extra_overrides)
