@@ -1,10 +1,41 @@
 """YOLOv8 training wrapper. Runs a single named experiment (e.g. baseline or
 masked) with consistent hyperparameters so runs are directly comparable."""
 
+import contextlib
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import torch
 from ultralytics import YOLO
+
+
+@contextlib.contextmanager
+def _tolerate_broken_triton():
+    """Ultralytics' init_seeds calls torch.use_deterministic_algorithms()
+    unconditionally at trainer startup — with deterministic=True it's
+    called as (True, warn_only=True); with deterministic=False it still
+    gets called, via unset_deterministic()'s use_deterministic_algorithms
+    (False). On some Colab images (torch paired with a broken/mismatched
+    triton install) *either* call crashes with "module 'triton.backends'
+    has no attribute 'compiler'" while importing torch._inductor, before
+    training even starts — there is no TrainConfig knob that avoids it,
+    since both branches hit the same call. This stubs the call out for the
+    duration of training only; we don't rely on bit-exact GPU determinism
+    anywhere in this project (that's what `seed` is for), so losing that
+    guarantee here is a no-op for our actual results."""
+    original = torch.use_deterministic_algorithms
+
+    def _safe(*args, **kwargs):
+        try:
+            return original(*args, **kwargs)
+        except AttributeError:
+            pass
+
+    torch.use_deterministic_algorithms = _safe
+    try:
+        yield
+    finally:
+        torch.use_deterministic_algorithms = original
 
 
 @dataclass
@@ -37,13 +68,13 @@ class TrainConfig:
     mixup: float = 0.0
     perspective: float = 0.0
     close_mosaic: int = 10
-    # Ultralytics defaults this to True, which calls
-    # torch.use_deterministic_algorithms() — on some Colab images this
-    # pulls in torch._inductor -> triton and crashes with
-    # "module 'triton.backends' has no attribute 'compiler'" on a broken
-    # triton/torch pairing, before training even starts. False avoids that
-    # import path entirely; run-to-run reproducibility still comes from
-    # `seed` above, just not bit-exact GPU determinism.
+    # Ultralytics defaults this to True, which sets cudnn.deterministic and
+    # a CUBLAS workspace env var for bit-exact GPU results. We don't rely
+    # on that anywhere (reproducibility comes from `seed` above), and it
+    # can slow training slightly, so it's off by default. Note: the
+    # trainer crash some Colab images hit ("triton.backends has no
+    # attribute 'compiler'") happens on *both* settings of this flag — see
+    # _tolerate_broken_triton() below, which is the actual fix for that.
     deterministic: bool = False
     extra_overrides: dict = field(default_factory=dict)
 
@@ -75,7 +106,8 @@ def train(config: TrainConfig):
         plots=True,
     )
     overrides.update(config.extra_overrides)
-    results = model.train(**overrides)
+    with _tolerate_broken_triton():
+        results = model.train(**overrides)
     return model, results
 
 
