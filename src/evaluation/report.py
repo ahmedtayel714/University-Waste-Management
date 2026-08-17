@@ -127,6 +127,32 @@ def _detect_leaf(model, image, conf, augment=False):
     ]
 
 
+def _leaf_isolation_panel(image, detections):
+    """Colour-tinted overlay, one distinct colour + ID per detected leaf —
+    the Track B analogue of Track A's watershed leaf-count panel. Track A
+    needs watershed because it detects one box per whole plant and has to
+    split it into leaves after the fact; Track B detects each leaf as its
+    own box directly, so this just tints what the model already separated.
+    It is NOT a pixel-accurate segmentation mask (Track B has no per-pixel
+    leaf boundaries, only boxes) — tinting the box region is an honest
+    visualization of "which detection is which", not a claim of instance
+    segmentation."""
+    overlay = image.copy()
+    rng = np.random.RandomState(42)
+    for i, det in enumerate(detections, start=1):
+        color = tuple(int(c) for c in rng.randint(60, 255, 3))
+        x1, y1, x2, y2 = [int(v) for v in det.box]
+        x1, y1 = max(x1, 0), max(y1, 0)
+        x2, y2 = min(x2, image.shape[1]), min(y2, image.shape[0])
+        if x2 <= x1 or y2 <= y1:
+            continue
+        region = overlay[y1:y2, x1:x2]
+        tint = np.full_like(region, color)
+        overlay[y1:y2, x1:x2] = cv2.addWeighted(region, 0.55, tint, 0.45, 0)
+        cv2.putText(overlay, str(i), (x1 + 3, y1 + 18), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 255, 255), 2)
+    return overlay
+
+
 def plot_leaf_pipeline_grid(
     image_paths,
     weights_path,
@@ -138,9 +164,14 @@ def plot_leaf_pipeline_grid(
     augment: bool = False,
 ) -> Path:
     """Track B's equivalent of plot_pipeline_grid: Original Input | Model
-    Input (letterboxed to imgsz) | Final Detection. No masking stage here —
-    unlike Track A, leaf detection trains and infers on plain RGB, so
-    showing an HSV mask step would misrepresent the actual pipeline.
+    Input (letterboxed to imgsz) | Final Detection | Detected Leaves
+    (isolated). No masking stage here — unlike Track A, leaf detection
+    trains and infers on plain RGB, so showing an HSV mask step would
+    misrepresent the actual pipeline. The 4th column plays the same visual
+    role as Track A's watershed leaf-count column (making individual leaves
+    visually distinct), but built from Track B's own per-leaf boxes rather
+    than a watershed split — Track B doesn't need watershed since it
+    detects each leaf directly (see _leaf_isolation_panel).
 
     Runs inference only against an already-trained checkpoint (e.g.
     leaf_v3_weights) — no training happens here.
@@ -153,12 +184,13 @@ def plot_leaf_pipeline_grid(
     """
     model = YOLO(weights_path)
     class_names = class_names or ["leaf"]
-    stage_titles = ("Original Input", f"Model Input ({imgsz}×{imgsz})", "Final Detection")
+    stage_titles = ("Original Input", f"Model Input ({imgsz}×{imgsz})",
+                     "Final Detection", "Detected Leaves (isolated)")
     n = len(image_paths)
     if row_labels is not None and len(row_labels) != n:
         raise ValueError("row_labels must be the same length as image_paths")
 
-    fig, axes = plt.subplots(n, 3, figsize=(13, 4.3 * n), squeeze=False)
+    fig, axes = plt.subplots(n, 4, figsize=(17, 4.3 * n), squeeze=False)
 
     for row, img_path in enumerate(image_paths):
         image = cv2.imread(str(img_path))
@@ -168,11 +200,13 @@ def plot_leaf_pipeline_grid(
         model_input = _letterbox(image, imgsz)
         detections = _detect_leaf(model, image, conf, augment)
         detected = draw_detections(image, detections, class_names)
+        isolated = _leaf_isolation_panel(image, detections)
 
         stage_images = [
             cv2.cvtColor(image, cv2.COLOR_BGR2RGB),
             cv2.cvtColor(model_input, cv2.COLOR_BGR2RGB),
             cv2.cvtColor(detected, cv2.COLOR_BGR2RGB),
+            cv2.cvtColor(isolated, cv2.COLOR_BGR2RGB),
         ]
         row_label = row_labels[row] if row_labels else Path(img_path).stem
 
@@ -185,7 +219,7 @@ def plot_leaf_pipeline_grid(
                 ax.set_ylabel(row_label, fontsize=9)
             ax.set_xticks([])
             ax.set_yticks([])
-            if col == 2:
+            if col == 2 or col == 3:
                 ax.set_xlabel(f"{len(detections)} leaf/leaves detected", fontsize=9)
 
     fig.tight_layout()
