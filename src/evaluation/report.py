@@ -162,16 +162,26 @@ def plot_leaf_pipeline_grid(
     conf: float = 0.25,
     class_names: list = None,
     augment: bool = False,
+    show_track_a_mask_comparison: bool = False,
 ) -> Path:
     """Track B's equivalent of plot_pipeline_grid: Original Input | Model
     Input (letterboxed to imgsz) | Final Detection | Detected Leaves
-    (isolated). No masking stage here — unlike Track A, leaf detection
-    trains and infers on plain RGB, so showing an HSV mask step would
-    misrepresent the actual pipeline. The 4th column plays the same visual
-    role as Track A's watershed leaf-count column (making individual leaves
-    visually distinct), but built from Track B's own per-leaf boxes rather
-    than a watershed split — Track B doesn't need watershed since it
-    detects each leaf directly (see _leaf_isolation_panel).
+    (isolated). No masking stage by default — unlike Track A, leaf
+    detection trains and infers on plain RGB, so showing an HSV mask step
+    as if it were part of Track B's pipeline would misrepresent it. The
+    isolated-leaves column plays the same visual role as Track A's
+    watershed leaf-count column, but built from Track B's own per-leaf
+    boxes rather than a watershed split — Track B doesn't need watershed
+    since it detects each leaf directly (see _leaf_isolation_panel).
+
+    show_track_a_mask_comparison=True inserts two extra columns —
+    "HSV Green Mask" and "Masked View" — computed with Track A's own
+    green_mask()/apply_mask_soft(), explicitly titled as Track A's
+    technique applied for comparison, not part of Track B's real
+    pipeline. This isn't decoration: it's the actual evidence for why
+    Track B doesn't mask — dry/brown fallen leaves aren't green, so the
+    mask discards most of the leaf, which the green-pixel-% annotation
+    under that column makes concrete per image.
 
     Runs inference only against an already-trained checkpoint (e.g.
     leaf_v3_weights) — no training happens here.
@@ -184,26 +194,38 @@ def plot_leaf_pipeline_grid(
     """
     model = YOLO(weights_path)
     class_names = class_names or ["leaf"]
-    stage_titles = ("Original Input", f"Model Input ({imgsz}×{imgsz})",
-                     "Final Detection", "Detected Leaves (isolated)")
+
+    stage_titles = ["Original Input"]
+    if show_track_a_mask_comparison:
+        stage_titles += ["HSV Green Mask\n(Track A technique — for comparison)",
+                          "Masked View\n(Track A technique — for comparison)"]
+    stage_titles += [f"Model Input ({imgsz}×{imgsz})", "Final Detection", "Detected Leaves (isolated)"]
+    n_cols = len(stage_titles)
+
     n = len(image_paths)
     if row_labels is not None and len(row_labels) != n:
         raise ValueError("row_labels must be the same length as image_paths")
 
-    fig, axes = plt.subplots(n, 4, figsize=(17, 4.3 * n), squeeze=False)
+    fig, axes = plt.subplots(n, n_cols, figsize=(4.25 * n_cols, 4.3 * n), squeeze=False)
 
     for row, img_path in enumerate(image_paths):
         image = cv2.imread(str(img_path))
         if image is None:
             raise FileNotFoundError(img_path)
 
+        stage_images = [cv2.cvtColor(image, cv2.COLOR_BGR2RGB)]
+        green_pct = None
+        if show_track_a_mask_comparison:
+            mask = green_mask(image)
+            masked_view = apply_mask_soft(image, mask)
+            green_pct = 100.0 * (mask > 0).mean()
+            stage_images += [mask, cv2.cvtColor(masked_view, cv2.COLOR_BGR2RGB)]
+
         model_input = _letterbox(image, imgsz)
         detections = _detect_leaf(model, image, conf, augment)
         detected = draw_detections(image, detections, class_names)
         isolated = _leaf_isolation_panel(image, detections)
-
-        stage_images = [
-            cv2.cvtColor(image, cv2.COLOR_BGR2RGB),
+        stage_images += [
             cv2.cvtColor(model_input, cv2.COLOR_BGR2RGB),
             cv2.cvtColor(detected, cv2.COLOR_BGR2RGB),
             cv2.cvtColor(isolated, cv2.COLOR_BGR2RGB),
@@ -212,14 +234,16 @@ def plot_leaf_pipeline_grid(
 
         for col, (title, img) in enumerate(zip(stage_titles, stage_images)):
             ax = axes[row][col]
-            ax.imshow(img)
+            ax.imshow(img, cmap="gray" if img.ndim == 2 else None)
             if row == 0:
-                ax.set_title(title, fontsize=12)
+                ax.set_title(title, fontsize=11)
             if col == 0:
                 ax.set_ylabel(row_label, fontsize=9)
             ax.set_xticks([])
             ax.set_yticks([])
-            if col == 2 or col == 3:
+            if show_track_a_mask_comparison and col == 1:
+                ax.set_xlabel(f"only {green_pct:.0f}% green", fontsize=9)
+            if col == n_cols - 2 or col == n_cols - 1:
                 ax.set_xlabel(f"{len(detections)} leaf/leaves detected", fontsize=9)
 
     fig.tight_layout()
