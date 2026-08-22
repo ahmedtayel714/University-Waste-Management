@@ -46,7 +46,13 @@ WEIGHTS_PATH = os.environ.get(
     "LEAF_WEIGHTS_PATH",
     os.path.join(os.path.dirname(__file__), "leaf_v3_best.pt"),
 )
-CONF_THRESHOLD = 0.25
+# Raised from 0.25 -- a recorded run showed the arm's own orange plastic
+# (never seen in training; plausibly close in hue to the dry-leaf tint
+# augmentation) drawing 0.2-0.5 confidence false positives at close
+# range. This does not fix the root cause (still visible in whatever
+# survives at higher confidence) but cuts the weakest, most obviously
+# wrong hits. See simulation/README.md.
+CONF_THRESHOLD = 0.45
 CAMERA_WIDTH, CAMERA_HEIGHT = 256, 256
 CAMERA_FOV = 0.9  # radians -- MUST match the Camera node's fieldOfView in leaf_field.wbt
 
@@ -58,10 +64,24 @@ CAMERA_FOV = 0.9  # radians -- MUST match the Camera node's fieldOfView in leaf_
 # Raised from an earlier low mount (z=0.30) that put the camera inside
 # the arm's own operating envelope -- confirmed from a recorded run that
 # the camera was staring at the arm's own dark mesh, not the ground.
-# Now mounted on a visible mast well above the arm's reach, with a
-# shallower pitch so it looks out across the ground ahead of the robot.
-CAMERA_MOUNT_TRANSLATION = (0.0, 0.0, 0.55)
-CAMERA_MOUNT_ROTATION_AXIS_ANGLE = (0.0, 1.0, 0.0, 1.0)  # ~57 degrees down from horizontal
+# That fix (z=0.55, ~57 degrees) was NOT enough -- a recorded run during
+# an active state still showed the arm filling most of the frame.
+# Went higher and steeper (closer to straight down) instead of just
+# higher: a near-overhead view has much less grazing-angle parallax, so
+# a foreground object of a given height occludes less of the frame than
+# the same object seen from a shallow angle. This narrows the visible
+# ground patch to roughly x=0.15-0.35m ahead of the mast (verified via
+# the same projection math used at runtime) -- still geometrically
+# overlapping where the arm CAN reach, since the camera has to see the
+# ground the arm operates on. Detection is now also paused outside
+# SEARCH/APPROACH (see step() below) so an extended arm during an
+# active pick can no longer generate false positives that matter, even
+# if it's still visible. If a folded (not extended) arm still intrudes
+# during SEARCH itself, that's the next thing to check -- the debug
+# window now prints the current state name on every frame specifically
+# so this can be diagnosed from a recording without guessing.
+CAMERA_MOUNT_TRANSLATION = (0.0, 0.0, 0.85)
+CAMERA_MOUNT_ROTATION_AXIS_ANGLE = (0.0, 1.0, 0.0, 1.35)  # ~77 degrees down from horizontal, near-overhead
 
 # Arm base (ARM1 joint origin) offset in the same BODY local frame --
 # from the real Youbot.proto: arm Solid at (0.156, 0, 0), ARM1 hinge
@@ -141,8 +161,10 @@ class LeafCollectorController:
         self.state = state
         self.state_step_count = 0
 
-    def _annotate_and_show(self, frame, detections):
-        annotated = self.vision.annotate(frame, detections)
+    def _annotate_and_show(self, frame, detections, label_suffix=""):
+        annotated = self.vision.annotate(frame, detections) if detections is not None else frame
+        cv2.putText(annotated, self.state + label_suffix, (5, 15),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 0), 1)
         cv2.imshow("leaf_v3 -- youBot overhead camera", annotated)
         cv2.waitKey(1)
 
@@ -151,8 +173,20 @@ class LeafCollectorController:
             return False
 
         frame = camera_image_to_bgr(self.camera)
-        detections = self.vision.detect(frame)
-        self._annotate_and_show(frame, detections)
+
+        # Detection only matters for SEARCH/APPROACH (see the state
+        # handlers below) -- running it during PICK/LIFT/DEPOSIT/RESET
+        # wastes inference time and, worse, shows a confusing wall of
+        # false positives on the arm's own close-up mesh in the debug
+        # window with zero effect on behavior. The arm has never once
+        # appeared in this model's training data (Track B's synthetic
+        # scenes are leaves/waste on ground only), so at close range its
+        # orange plastic gets misread as a dry leaf -- expected, not a
+        # sign best.pt is broken; see this project's simulation/README.md.
+        detects_this_state = self.state in (self.STATE_SEARCH, self.STATE_APPROACH)
+        detections = self.vision.detect(frame) if detects_this_state else []
+        self._annotate_and_show(frame, detections if detects_this_state else None,
+                                 label_suffix="" if detects_this_state else " (detection paused)")
         self.state_step_count += 1
 
         if self.state == self.STATE_SEARCH:
