@@ -9,3 +9,6 @@ reports/
 kaggle.json
 Test_Photos/
 *.wbproj
+simulation/*.mov
+simulation/*.mp4
+simulation/Screenshot*.png

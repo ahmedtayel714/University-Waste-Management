@@ -92,7 +92,6 @@ APPROACH_STOP_DEPTH = 0.32       # meters -- switch from base-driving to arm-pic
 TURN_GAIN = 1.2
 FORWARD_SPEED = 0.08             # m/s, deliberately slow -- this base has no obstacle avoidance
 SEARCH_OMEGA = 0.6               # rad/s in-place rotation when nothing is detected
-LEAF_DEF_PREFIX = "LEAF_"
 LIFT_POSE = (0.05, 0.20, 0.15)   # arm-frame (lateral, forward, height) -- a safe raised pose
 DEPOSIT_POSE = (0.20, 0.05, 0.10)  # arm-frame pose over the onboard bin
 STEPS_TO_SETTLE = 15             # simulation steps to wait after commanding a joint move, before acting on it

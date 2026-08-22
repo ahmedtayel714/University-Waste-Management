@@ -14,10 +14,12 @@ a real robot.
 
 ```
 simulation/
+  leaf/                               # 10 source leaf photos (plain white background) provided for texturing
   worlds/
-    leaf_field.wbt                     # KUKA youBot + SandyGround floor + 5 physics leaves + clutter
+    leaf_field.wbt                     # KUKA youBot + SandyGround floor + 9 physics leaves + clutter
     protos/YoubotWithGripperSlot.proto # Cyberbotics' real Youbot.proto, forked to add ONE gripper attachment point
-    textures/leaf.jpg                  # real leaf photo, used as leaf texture
+    textures/leaves/*.png              # 9 alpha-cutout PNGs generated from simulation/leaf/ -- see below
+    textures/leaf.jpg                  # earlier single-photo texture, no longer referenced (kept, harmless)
   controllers/
     youbot_leaf_collector/
       youbot_leaf_collector.py    # main controller: state machine (search/approach/pick/lift/deposit/reset)
@@ -26,6 +28,14 @@ simulation/
       vision_bridge.py            # loads the real leaf model once, wraps it for per-frame use
     leaf_collector/                # earlier, simpler e-puck version -- kept as a fallback, not currently wired to leaf_field.wbt
 ```
+
+### Leaf texture pipeline (why it changed)
+
+The first version mapped a single real photo — `data/field_validation/images/green_leaf_01.jpg`, a full ground photo with one leaf on it, not an isolated cutout — onto a plain rectangle. Every leaf prop in the scene looked like a tiny framed photograph (dirt background and all) sitting on the ground, not like a leaf. Confirmed from a recorded run.
+
+Fix: the 10 photos in `simulation/leaf/` (plain white background, one per file) were each run through `auto_segment_plain_background()` — the project's existing GrabCut-based cutout tool (`src/synthetic/cutout_extractor.py`, already used for Track B's synthetic dataset) — to produce real alpha-transparent PNG cutouts in `simulation/worlds/textures/leaves/`. One of the ten (`00009.jpeg`) turned out to be a decorative clip-art pattern of many tiny leaves, not a single-leaf photo, and was excluded; the other 9 are used, each on its own `Plane` sized to its image's real aspect ratio and a randomized target size (5–11 cm long edge). Alpha transparency means the ground actually shows around each leaf's silhouette instead of a background patch.
+
+To regenerate or add more: see the one-off script logic in this project's history (`git log -p` on this README's introducing commit), or reuse `auto_segment_plain_background(image_bgr)` directly — it returns a 0/255 foreground mask from a plain/roughly-uniform-background photo.
 
 ## What's real vs. staged in this version
 
@@ -48,34 +58,16 @@ the parts described as real above.
 
 ## Verification status — please read before assuming it just works
 
-- **Controller logic: fully verified**, offline, against a mock Webots
-  harness exercising the complete state machine (search → approach →
-  pick → lift → deposit → reset, twice through). No crashes, all joint
-  angles finite, depth projection math checked against a hand-derived
-  geometric test case.
-- **Arm IK: verified for producing finite, in-range solutions**, and for
-  correctly rejecting out-of-reach targets rather than emitting garbage
-  angles. **Not verified live.** One specific thing to check on your
-  first real run: whether the arm reaches toward the correct side
-  (left/right) of the actual detected leaf. If it reaches to the
-  mirror-opposite side, that's a single sign flip — see the comment
-  above `lateral_right = -left` in `youbot_leaf_collector.py`
-  (`body_to_arm_frame`), which documents exactly why that sign was
-  chosen and what evidence would say it's backwards.
-- **The world file: could not be verified with the same headless
-  Webots test used successfully for the earlier e-puck version.**
-  Loading youBot via `webots --batch --no-rendering --mode=fast`
-  hangs indefinitely with zero console output — and this reproduces
-  identically with Cyberbotics' own *unmodified* `Youbot.proto`, not
-  just this project's fork, so it isn't something introduced here. It
-  may be specific to this robot's heavier mesh assets under that
-  particular flag combination. **Please open `leaf_field.wbt` normally
-  in the Webots GUI** (not headless) for the actual first test — that's
-  also how you'll be running it for real, so this isn't a gap that
-  matters beyond today.
-- The `gripperSlot` fork was verified structurally (brace/bracket
-  balance, correct field wiring) but not load-tested for the same
-  reason above.
+Live-verified via actual recordings so far, each fixed in turn:
+- World file loads and runs (youBot, arm, gripper, camera all functional).
+- Camera self-occlusion by the arm's own mesh — fixed by raising/steepening the mount twice.
+- False "leaf" detections on the arm's orange plastic at close range — fixed by gating detection to SEARCH/APPROACH only, raising the confidence threshold, and the camera geometry fix above; confirmed from a recording that the remaining detection was correctly on a real leaf-shaped object, not the arm.
+- Ground/leaves rendering almost black — fixed a `DirectionalLight` pointing slightly *up* instead of down.
+- Leaf props looking like small framed photos instead of leaves — fixed by switching to real alpha-cutout PNGs (see above).
+
+**Not yet live-verified — arm IK left/right sign.** The math produces finite, in-range joint solutions and cleanly rejects unreachable targets (unit-tested), but whether the arm reaches toward the *correct* side of a real detected leaf hasn't been confirmed from a recording yet. If it reaches to the mirror-opposite side, that's a single sign flip — see the comment above `lateral_right = -left` in `youbot_leaf_collector.py` (`body_to_arm_frame`).
+
+**Still not headlessly load-testable.** `webots --batch --no-rendering --mode=fast` hangs indefinitely loading youBot specifically (reproduces with Cyberbotics' own unmodified `Youbot.proto` too, not this fork) — every check above came from an actual GUI recording, which remains the only reliable way to verify a change here.
 
 ## Setup
 
@@ -104,11 +96,15 @@ Debug in this order, since later stages depend on earlier ones working:
 1. Console shows `[youbot_leaf_collector] loaded real leaf model from ...`
    — confirms the controller started and found the weights file.
 2. A window titled "leaf_v3 — youBot overhead camera" shows a live,
-   annotated view from the robot's overhead camera. If detections never
-   appear even on an obvious leaf, check the camera is actually pointed
-   at the floor (the mount's pitch — `rotation 0 1 0 1.30` on the Camera
-   node — is a first guess, not a measured value; adjust the angle if
-   the view is mostly sky/walls or mostly the robot's own chassis).
+   annotated view from the robot's overhead camera, with the current
+   state name printed top-left (useful for matching a recording to what
+   the controller was doing at that moment). If detections never appear
+   even on an obvious leaf, check the camera is actually pointed at the
+   floor and not into the robot's own arm (the mount — `rotation 0 1 0
+   1.35` on the Camera node, near-overhead — has already been corrected
+   twice from recordings; if it's wrong again, this is the thing to
+   adjust, keeping the Python controller's `CAMERA_MOUNT_TRANSLATION`/
+   `CAMERA_MOUNT_ROTATION_AXIS_ANGLE` in sync with whatever you change).
 3. Console prints `tracking leaf, confidence=..., depth=...` while the
    base drives toward a detected leaf — confirms the base's visual
    servoing and the RangeFinder are both working.

@@ -141,27 +141,32 @@ YoubotWithGripperSlot {
   ]
 }
 
-# ---- Target leaves: mix of fresh-green and dry-tinted, real physics so
-# the gripper+Connector combination performs a genuine grasp/lift, not a
-# scripted disappearance. Count kept to 5 per the plan (avoid over-
-# clustering). Each has its own Connector matching the gripper's "leaf_grip"
-# model string, required for the two Connectors to be able to lock.
+# ---- Target leaves: 9 real leaf photos (alpha-cutout PNGs, see
+# simulation/worlds/textures/leaves/ and the processing note in
+# simulation/README.md) instead of one photo repeated on a plain box --
+# the earlier version stretched a single ground photo (with its own
+# dirt background baked in) across a rectangle, which looked like a
+# small framed picture sitting on the ground rather than a leaf.
+# Each Plane is sized to its own source image's aspect ratio, scaled to
+# a randomized real-life-ish target size. Real physics + a Connector
+# per leaf, same as before, for a genuine grasp/lift, not a scripted
+# disappearance.
 
 DEF LEAF_1 Solid {
-  translation 0.4 0.2 0.005
-  rotation 0 0 1 0.3
+  translation -0.407 0.300 0.005
+  rotation 0 0 1 -2.905
   children [
     Shape {
       appearance PBRAppearance {
         baseColor 1 1 1
         baseColorMap ImageTexture {
-          url [ "textures/leaf.jpg" ]
+          url [ "textures/leaves/0001.png" ]
         }
         roughness 1
         metalness 0
       }
-      geometry Box {
-        size 0.08 0.06 0.001
+      geometry Plane {
+        size 0.0418 0.0719
       }
     }
     Connector {
@@ -175,7 +180,7 @@ DEF LEAF_1 Solid {
   ]
   name "leaf_1"
   boundingObject Box {
-    size 0.08 0.06 0.001
+    size 0.0418 0.0719 0.001
   }
   physics Physics {
     density -1
@@ -184,20 +189,20 @@ DEF LEAF_1 Solid {
 }
 
 DEF LEAF_2 Solid {
-  translation -0.35 0.3 0.005
-  rotation 0 0 1 1.1
+  translation -0.126 -0.545 0.005
+  rotation 0 0 1 -0.474
   children [
     Shape {
       appearance PBRAppearance {
-        baseColor 0.75 0.45 0.25
+        baseColor 0.78 0.48 0.28
         baseColorMap ImageTexture {
-          url [ "textures/leaf.jpg" ]
+          url [ "textures/leaves/0002.png" ]
         }
         roughness 1
         metalness 0
       }
-      geometry Box {
-        size 0.07 0.05 0.001
+      geometry Plane {
+        size 0.0685 0.076
       }
     }
     Connector {
@@ -211,7 +216,7 @@ DEF LEAF_2 Solid {
   ]
   name "leaf_2"
   boundingObject Box {
-    size 0.07 0.05 0.001
+    size 0.0685 0.076 0.001
   }
   physics Physics {
     density -1
@@ -220,20 +225,20 @@ DEF LEAF_2 Solid {
 }
 
 DEF LEAF_3 Solid {
-  translation 0.25 -0.4 0.005
-  rotation 0 0 1 -0.6
+  translation 0.527 0.333 0.005
+  rotation 0 0 1 0.800
   children [
     Shape {
       appearance PBRAppearance {
         baseColor 1 1 1
         baseColorMap ImageTexture {
-          url [ "textures/leaf.jpg" ]
+          url [ "textures/leaves/0003.png" ]
         }
         roughness 1
         metalness 0
       }
-      geometry Box {
-        size 0.09 0.065 0.001
+      geometry Plane {
+        size 0.0714 0.0996
       }
     }
     Connector {
@@ -247,7 +252,7 @@ DEF LEAF_3 Solid {
   ]
   name "leaf_3"
   boundingObject Box {
-    size 0.09 0.065 0.001
+    size 0.0714 0.0996 0.001
   }
   physics Physics {
     density -1
@@ -256,20 +261,20 @@ DEF LEAF_3 Solid {
 }
 
 DEF LEAF_4 Solid {
-  translation -0.3 -0.35 0.005
-  rotation 0 0 1 2.0
+  translation 0.525 -0.056 0.005
+  rotation 0 0 1 2.991
   children [
     Shape {
       appearance PBRAppearance {
-        baseColor 0.8 0.5 0.3
+        baseColor 0.78 0.48 0.28
         baseColorMap ImageTexture {
-          url [ "textures/leaf.jpg" ]
+          url [ "textures/leaves/0004.png" ]
         }
         roughness 1
         metalness 0
       }
-      geometry Box {
-        size 0.075 0.055 0.001
+      geometry Plane {
+        size 0.0914 0.1069
       }
     }
     Connector {
@@ -283,7 +288,7 @@ DEF LEAF_4 Solid {
   ]
   name "leaf_4"
   boundingObject Box {
-    size 0.075 0.055 0.001
+    size 0.0914 0.1069 0.001
   }
   physics Physics {
     density -1
@@ -292,20 +297,20 @@ DEF LEAF_4 Solid {
 }
 
 DEF LEAF_5 Solid {
-  translation 0.5 -0.05 0.005
-  rotation 0 0 1 -1.4
+  translation 0.422 0.207 0.005
+  rotation 0 0 1 -2.234
   children [
     Shape {
       appearance PBRAppearance {
         baseColor 1 1 1
         baseColorMap ImageTexture {
-          url [ "textures/leaf.jpg" ]
+          url [ "textures/leaves/0005.png" ]
         }
         roughness 1
         metalness 0
       }
-      geometry Box {
-        size 0.08 0.06 0.001
+      geometry Plane {
+        size 0.0383 0.0528
       }
     }
     Connector {
@@ -319,7 +324,151 @@ DEF LEAF_5 Solid {
   ]
   name "leaf_5"
   boundingObject Box {
-    size 0.08 0.06 0.001
+    size 0.0383 0.0528 0.001
+  }
+  physics Physics {
+    density -1
+    mass 0.001
+  }
+}
+
+DEF LEAF_6 Solid {
+  translation -0.511 0.069 0.005
+  rotation 0 0 1 -2.005
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.78 0.48 0.28
+        baseColorMap ImageTexture {
+          url [ "textures/leaves/0006.png" ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Plane {
+        size 0.0571 0.0409
+      }
+    }
+    Connector {
+      translation 0 0 0.0006
+      name "leaf connector 6"
+      model "leaf_grip"
+      autoLock FALSE
+      axisTolerance 3.14
+      rotationTolerance 3.14
+    }
+  ]
+  name "leaf_6"
+  boundingObject Box {
+    size 0.0571 0.0409 0.001
+  }
+  physics Physics {
+    density -1
+    mass 0.001
+  }
+}
+
+DEF LEAF_7 Solid {
+  translation -0.312 -0.368 0.005
+  rotation 0 0 1 0.300
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 1 1
+        baseColorMap ImageTexture {
+          url [ "textures/leaves/00007.png" ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Plane {
+        size 0.0849 0.0593
+      }
+    }
+    Connector {
+      translation 0 0 0.0006
+      name "leaf connector 7"
+      model "leaf_grip"
+      autoLock FALSE
+      axisTolerance 3.14
+      rotationTolerance 3.14
+    }
+  ]
+  name "leaf_7"
+  boundingObject Box {
+    size 0.0849 0.0593 0.001
+  }
+  physics Physics {
+    density -1
+    mass 0.001
+  }
+}
+
+DEF LEAF_8 Solid {
+  translation 0.224 -0.438 0.005
+  rotation 0 0 1 1.133
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.78 0.48 0.28
+        baseColorMap ImageTexture {
+          url [ "textures/leaves/00008.png" ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Plane {
+        size 0.0261 0.0538
+      }
+    }
+    Connector {
+      translation 0 0 0.0006
+      name "leaf connector 8"
+      model "leaf_grip"
+      autoLock FALSE
+      axisTolerance 3.14
+      rotationTolerance 3.14
+    }
+  ]
+  name "leaf_8"
+  boundingObject Box {
+    size 0.0261 0.0538 0.001
+  }
+  physics Physics {
+    density -1
+    mass 0.001
+  }
+}
+
+DEF LEAF_9 Solid {
+  translation 0.089 0.485 0.005
+  rotation 0 0 1 -0.294
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 1 1 1
+        baseColorMap ImageTexture {
+          url [ "textures/leaves/0010.png" ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Plane {
+        size 0.0757 0.0601
+      }
+    }
+    Connector {
+      translation 0 0 0.0006
+      name "leaf connector 9"
+      model "leaf_grip"
+      autoLock FALSE
+      axisTolerance 3.14
+      rotationTolerance 3.14
+    }
+  ]
+  name "leaf_9"
+  boundingObject Box {
+    size 0.0757 0.0601 0.001
   }
   physics Physics {
     density -1
