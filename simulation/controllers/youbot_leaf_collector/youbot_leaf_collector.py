@@ -185,8 +185,6 @@ class LeafCollectorController:
         # sign best.pt is broken; see this project's simulation/README.md.
         detects_this_state = self.state in (self.STATE_SEARCH, self.STATE_APPROACH)
         detections = self.vision.detect(frame) if detects_this_state else []
-        self._annotate_and_show(frame, detections if detects_this_state else None,
-                                 label_suffix="" if detects_this_state else " (detection paused)")
         self.state_step_count += 1
 
         if self.state == self.STATE_SEARCH:
@@ -201,6 +199,14 @@ class LeafCollectorController:
             self._do_deposit()
         elif self.state == self.STATE_RESET:
             self._do_reset()
+
+        # Shown/labeled AFTER the state handlers above run, so the overlay
+        # reflects the state as of the END of this step -- e.g. a leaf
+        # found while in SEARCH shows the box under the "APPROACH" label
+        # it just transitioned into, not the stale "SEARCH" label from
+        # before that transition happened.
+        self._annotate_and_show(frame, detections if detects_this_state else None,
+                                 label_suffix="" if detects_this_state else " (detection paused)")
 
         return True
 

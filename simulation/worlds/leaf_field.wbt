@@ -42,7 +42,16 @@ Background {
   ]
 }
 DirectionalLight {
-  direction 0.3 -0.7 0.3
+  # This world is Z-up (translations elsewhere use z for height) -- a
+  # light "direction" is the vector light TRAVELS along, so illuminating
+  # the ground needs a strongly NEGATIVE z component. The previous value
+  # (0.3, -0.7, 0.3) had z=+0.3 -- pointing slightly UP, barely lighting
+  # anything on the ground -- confirmed from a recorded run where flat
+  # ground-lying leaf textures rendered almost black while a bright
+  # near-white prop in the same shot still looked fine (a dim scene
+  # under-lights moderate-albedo textures far more visibly than a
+  # near-white flat color, which is why only the leaves looked broken).
+  direction 0.3 0.3 -0.9
   intensity 2.5
   castShadows TRUE
 }
