@@ -92,6 +92,8 @@ APPROACH_STOP_DEPTH = 0.32       # meters -- switch from base-driving to arm-pic
 TURN_GAIN = 1.2
 FORWARD_SPEED = 0.08             # m/s, deliberately slow -- this base has no obstacle avoidance
 SEARCH_OMEGA = 0.6               # rad/s in-place rotation when nothing is detected
+TARGET_SWITCH_TOLERANCE_PX = 60  # see _select_target -- how far (in pixels) a detection can be
+                                  # from the currently-tracked one and still count as "the same leaf"
 LIFT_POSE = (0.05, 0.20, 0.15)   # arm-frame (lateral, forward, height) -- a safe raised pose
 DEPOSIT_POSE = (0.20, 0.05, 0.10)  # arm-frame pose over the onboard bin
 STEPS_TO_SETTLE = 15             # simulation steps to wait after commanding a joint move, before acting on it
@@ -155,10 +157,43 @@ class LeafCollectorController:
         self.state = self.STATE_SEARCH
         self.state_step_count = 0
         self.leaves_collected = 0
+        self._approach_target_pixel = None  # see _select_target
 
     def _enter_state(self, state):
         self.state = state
         self.state_step_count = 0
+        if state == self.STATE_SEARCH:
+            self._approach_target_pixel = None  # forget the old target, next APPROACH re-acquires fresh
+
+    def _select_target(self, detections):
+        """Pick which detection to steer toward. With several leaves
+        visible at once (common now that the camera sees a wide patch of
+        ground), always taking the single highest-confidence box every
+        frame was a real bug: confidence rank flips between leaves frame
+        to frame from ordinary inference noise, so the steering target --
+        and therefore the turn direction -- kept switching before the
+        base ever made net progress toward any one leaf. Confirmed from a
+        24-second recording where the robot stayed in APPROACH the whole
+        time without the scene ever changing.
+
+        Fix: stick with whichever detection is closest (in pixel space)
+        to the leaf we were already tracking, as long as one is still
+        within TARGET_SWITCH_TOLERANCE_PX of where it last was. Only
+        fall back to picking by raw confidence when there's no current
+        target yet (just left SEARCH) or the tracked leaf is no longer
+        anywhere near where it was (actually lost, not just a confidence
+        blip)."""
+        if self._approach_target_pixel is not None:
+            px, py = self._approach_target_pixel
+
+            def _dist(d):
+                x1, y1, x2, y2 = d.box
+                return math.hypot((x1 + x2) / 2 - px, (y1 + y2) / 2 - py)
+
+            nearest = min(detections, key=_dist)
+            if _dist(nearest) <= TARGET_SWITCH_TOLERANCE_PX:
+                return nearest
+        return max(detections, key=lambda d: d.conf)
 
     def _annotate_and_show(self, frame, detections, label_suffix=""):
         annotated = self.vision.annotate(frame, detections) if detections is not None else frame
@@ -221,10 +256,11 @@ class LeafCollectorController:
             self._enter_state(self.STATE_SEARCH)
             return
 
-        target = max(detections, key=lambda d: d.conf)
+        target = self._select_target(detections)
         x1, y1, x2, y2 = target.box
         box_cx = (x1 + x2) / 2
         box_cy = (y1 + y2) / 2
+        self._approach_target_pixel = (box_cx, box_cy)
         offset = (box_cx - CAMERA_WIDTH / 2) / (CAMERA_WIDTH / 2)
 
         depth_map = self.range_finder.getRangeImage()
