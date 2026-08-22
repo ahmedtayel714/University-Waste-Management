@@ -1,26 +1,28 @@
 #VRML_SIM R2025a utf8
 # Leaf Field -- Conceptual Demonstration
 #
-# This world is a first draft, written without a running Webots instance
-# to test against (see simulation/README.md). E-puck PROTO field names
-# (camera_width/height, turretSlot, supervisor) are correct as of recent
-# Webots releases, but if Webots reports an unknown field when opening
-# this file, select the E-puck node in the Scene Tree, check its actual
-# exposed fields there, and rename/remove the offending line to match --
-# that's expected first-run debugging, not a sign the whole file is wrong.
+# Real leaf_v3 model + real depth-camera coordinate transform + a real
+# (Cyberbotics-authored, ported not reinvented) 5-DOF arm IK drive a
+# KUKA youBot mobile manipulator via
+# simulation/controllers/youbot_leaf_collector/. The robot body, arm,
+# gripper mesh, and this scene's clutter/ground dressing are the
+# simulated/staged part -- always caption recordings
+# "Simulation -- Conceptual Demonstration".
 #
-# Real leaf_v3 model drives the robot via simulation/controllers/leaf_collector/.
-# The robot body, arena, and "scoop" shape below are the simulated/staged
-# part -- always caption recordings "Simulation -- Conceptual Demonstration".
+# Uses a locally forked copy of Cyberbotics' real Youbot.proto
+# (protos/YoubotWithGripperSlot.proto) whose ONLY change from the
+# original is one added `gripperSlot` field, used below to mount a
+# Connector device on the gripper palm for a real physics-based grasp
+# lock -- no kinematics, meshes, or motors were altered.
 
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
 EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
-EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/gctronic/e-puck/protos/E-puck.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/appearances/protos/SandyGround.proto"
+EXTERNPROTO "protos/YoubotWithGripperSlot.proto"
 
 WorldInfo {
   info [
-    "Conceptual simulation: real leaf_v3 YOLOv8 model + a Webots library robot body."
+    "Conceptual simulation: real leaf_v3 model, real depth-based coordinate transform,"
+    "real (ported) youBot arm IK, real Connector-based grasp physics."
     "Not a physical robot. See Simulation_Sprint_Plan.md section 5 for presentation framing."
   ]
   title "Leaf Field -- Conceptual Demonstration"
@@ -28,158 +30,347 @@ WorldInfo {
 }
 
 Viewpoint {
-  orientation -0.30 0.92 0.25 1.65
-  position -0.9 1.1 -1.1
-  follow "EPUCK"
+  orientation -0.28 0.90 0.32 1.55
+  position -1.0 1.0 -1.1
+  follow "YOUBOT"
   followType "Mounted Shot"
 }
 
-TexturedBackground {
+Background {
+  skyColor [
+    0.55 0.58 0.62
+  ]
 }
-TexturedBackgroundLight {
+DirectionalLight {
+  direction 0.3 -0.7 0.3
+  intensity 2.5
+  castShadows TRUE
 }
 
 RectangleArena {
   floorSize 2 2
   floorTileSize 2 2
-  floorAppearance PBRAppearance {
-    baseColor 0.36 0.27 0.17
-    roughness 1
-    metalness 0
+  floorAppearance SandyGround {
   }
-  wallHeight 0.05
+  wallHeight 0.2
 }
 
-E-puck {
-  translation 0 0 0
-  rotation 0 1 0 0
-  name "EPUCK"
-  controller "leaf_collector"
-  supervisor TRUE
-  camera_width 256
-  camera_height 256
-  turretSlot [
+YoubotWithGripperSlot {
+  translation 0 0 0.12
+  rotation 0 0 1 0
+  name "YOUBOT"
+  controller "youbot_leaf_collector"
+  numberOfArms 1
+  bodySlot [
+    Camera {
+      translation 0.10 0 0.30
+      rotation 0 1 0 1.30
+      name "camera"
+      fieldOfView 0.9
+      width 256
+      height 256
+    }
+    RangeFinder {
+      translation 0.10 0 0.30
+      rotation 0 1 0 1.30
+      name "range-finder"
+      fieldOfView 0.9
+      width 256
+      height 256
+      minRange 0.05
+      maxRange 1.5
+    }
     Solid {
-      translation 0.045 0.01 0
+      translation 0.18 0.05 0.12
       children [
         Shape {
           appearance PBRAppearance {
-            baseColor 0.55 0.55 0.55
-            roughness 0.8
+            baseColor 0.65 0.6 0.5
+            roughness 0.9
+            metalness 0
           }
           geometry Box {
-            size 0.05 0.02 0.07
+            size 0.12 0.12 0.06
           }
         }
       ]
-      name "scoop"
+      name "collection bin"
+    }
+  ]
+  gripperSlot [
+    Connector {
+      translation 0 0 0.1
+      name "gripper connector"
+      model "leaf_grip"
+      autoLock FALSE
+      axisTolerance 3.14
+      rotationTolerance 3.14
     }
   ]
 }
 
-# Scattered leaves. DEF names LEAF_1..LEAF_5 are required -- the
-# controller looks them up by exactly this naming pattern
-# (see LEAF_DEF_PREFIX in leaf_collector.py) to know which node to
-# remove on a scripted "pickup". Positions are spread around the arena
-# so the robot has to search+turn between each one, per the plan's
-# "repeat over 3-5 consecutive leaves" requirement.
+# ---- Target leaves: mix of fresh-green and dry-tinted, real physics so
+# the gripper+Connector combination performs a genuine grasp/lift, not a
+# scripted disappearance. Count kept to 5 per the plan (avoid over-
+# clustering). Each has its own Connector matching the gripper's "leaf_grip"
+# model string, required for the two Connectors to be able to lock.
 
 DEF LEAF_1 Solid {
-  translation 0.35 0.001 0.25
-  rotation 1 0 0 -1.5708
+  translation 0.4 0.2 0.005
+  rotation 0 0 1 0.3
   children [
     Shape {
       appearance PBRAppearance {
+        baseColor 1 1 1
         baseColorMap ImageTexture {
           url [ "textures/leaf.jpg" ]
         }
         roughness 1
         metalness 0
       }
-      geometry Plane {
-        size 0.08 0.06
+      geometry Box {
+        size 0.08 0.06 0.001
       }
+    }
+    Connector {
+      translation 0 0 0.0006
+      name "leaf connector 1"
+      model "leaf_grip"
+      autoLock FALSE
+      axisTolerance 3.14
+      rotationTolerance 3.14
     }
   ]
   name "leaf_1"
+  boundingObject Box {
+    size 0.08 0.06 0.001
+  }
+  physics Physics {
+    density -1
+    mass 0.001
+  }
 }
 
 DEF LEAF_2 Solid {
-  translation -0.4 0.001 0.3
-  rotation 1 0 0 -1.5708
+  translation -0.35 0.3 0.005
+  rotation 0 0 1 1.1
   children [
     Shape {
       appearance PBRAppearance {
+        baseColor 0.75 0.45 0.25
         baseColorMap ImageTexture {
           url [ "textures/leaf.jpg" ]
         }
         roughness 1
         metalness 0
       }
-      geometry Plane {
-        size 0.07 0.05
+      geometry Box {
+        size 0.07 0.05 0.001
       }
+    }
+    Connector {
+      translation 0 0 0.0006
+      name "leaf connector 2"
+      model "leaf_grip"
+      autoLock FALSE
+      axisTolerance 3.14
+      rotationTolerance 3.14
     }
   ]
   name "leaf_2"
+  boundingObject Box {
+    size 0.07 0.05 0.001
+  }
+  physics Physics {
+    density -1
+    mass 0.001
+  }
 }
 
 DEF LEAF_3 Solid {
-  translation 0.2 0.001 -0.45
-  rotation 1 0 0 -1.5708
+  translation 0.25 -0.4 0.005
+  rotation 0 0 1 -0.6
   children [
     Shape {
       appearance PBRAppearance {
+        baseColor 1 1 1
         baseColorMap ImageTexture {
           url [ "textures/leaf.jpg" ]
         }
         roughness 1
         metalness 0
       }
-      geometry Plane {
-        size 0.09 0.065
+      geometry Box {
+        size 0.09 0.065 0.001
       }
+    }
+    Connector {
+      translation 0 0 0.0006
+      name "leaf connector 3"
+      model "leaf_grip"
+      autoLock FALSE
+      axisTolerance 3.14
+      rotationTolerance 3.14
     }
   ]
   name "leaf_3"
+  boundingObject Box {
+    size 0.09 0.065 0.001
+  }
+  physics Physics {
+    density -1
+    mass 0.001
+  }
 }
 
 DEF LEAF_4 Solid {
-  translation -0.3 0.001 -0.35
-  rotation 1 0 0 -1.5708
+  translation -0.3 -0.35 0.005
+  rotation 0 0 1 2.0
   children [
     Shape {
       appearance PBRAppearance {
+        baseColor 0.8 0.5 0.3
         baseColorMap ImageTexture {
           url [ "textures/leaf.jpg" ]
         }
         roughness 1
         metalness 0
       }
-      geometry Plane {
-        size 0.075 0.055
+      geometry Box {
+        size 0.075 0.055 0.001
       }
+    }
+    Connector {
+      translation 0 0 0.0006
+      name "leaf connector 4"
+      model "leaf_grip"
+      autoLock FALSE
+      axisTolerance 3.14
+      rotationTolerance 3.14
     }
   ]
   name "leaf_4"
+  boundingObject Box {
+    size 0.075 0.055 0.001
+  }
+  physics Physics {
+    density -1
+    mass 0.001
+  }
 }
 
 DEF LEAF_5 Solid {
-  translation 0.55 0.001 -0.1
-  rotation 1 0 0 -1.5708
+  translation 0.5 -0.05 0.005
+  rotation 0 0 1 -1.4
   children [
     Shape {
       appearance PBRAppearance {
+        baseColor 1 1 1
         baseColorMap ImageTexture {
           url [ "textures/leaf.jpg" ]
         }
         roughness 1
         metalness 0
       }
-      geometry Plane {
-        size 0.08 0.06
+      geometry Box {
+        size 0.08 0.06 0.001
       }
+    }
+    Connector {
+      translation 0 0 0.0006
+      name "leaf connector 5"
+      model "leaf_grip"
+      autoLock FALSE
+      axisTolerance 3.14
+      rotationTolerance 3.14
     }
   ]
   name "leaf_5"
+  boundingObject Box {
+    size 0.08 0.06 0.001
+  }
+  physics Physics {
+    density -1
+    mass 0.001
+  }
+}
+
+# ---- Non-target clutter/distractions (visual only, no physics needed --
+# these exist purely to test that the detector correctly ignores them,
+# matching the TACO waste classes already used elsewhere in this project).
+
+Solid {
+  translation -0.15 0.45 0.03
+  rotation 1 0 0 1.5708
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.75 0.85 0.9
+        transparency 0.3
+        roughness 0.1
+        metalness 0
+      }
+      geometry Cylinder {
+        radius 0.03
+        height 0.18
+      }
+    }
+  ]
+  name "plastic bottle (clutter)"
+}
+
+Solid {
+  translation 0.1 0.35 0.001
+  rotation 0 0 1 0.4
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.95 0.95 0.9
+        roughness 0.95
+        metalness 0
+      }
+      geometry Box {
+        size 0.1 0.07 0.001
+      }
+    }
+  ]
+  name "paper scrap (clutter)"
+}
+
+Solid {
+  translation -0.5 -0.1 0.005
+  rotation 0 0 1 0.9
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.4 0.28 0.15
+        roughness 0.9
+        metalness 0
+      }
+      geometry Cylinder {
+        radius 0.005
+        height 0.15
+      }
+    }
+  ]
+  name "twig (clutter) 1"
+}
+
+Solid {
+  translation 0.15 -0.55 0.005
+  rotation 0.3 0.3 1 1.2
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColor 0.35 0.24 0.13
+        roughness 0.9
+        metalness 0
+      }
+      geometry Cylinder {
+        radius 0.004
+        height 0.12
+      }
+    }
+  ]
+  name "twig (clutter) 2"
 }
