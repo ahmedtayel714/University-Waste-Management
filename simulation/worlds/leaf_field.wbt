@@ -1,0 +1,185 @@
+#VRML_SIM R2025a utf8
+# Leaf Field -- Conceptual Demonstration
+#
+# This world is a first draft, written without a running Webots instance
+# to test against (see simulation/README.md). E-puck PROTO field names
+# (camera_width/height, turretSlot, supervisor) are correct as of recent
+# Webots releases, but if Webots reports an unknown field when opening
+# this file, select the E-puck node in the Scene Tree, check its actual
+# exposed fields there, and rename/remove the offending line to match --
+# that's expected first-run debugging, not a sign the whole file is wrong.
+#
+# Real leaf_v3 model drives the robot via simulation/controllers/leaf_collector/.
+# The robot body, arena, and "scoop" shape below are the simulated/staged
+# part -- always caption recordings "Simulation -- Conceptual Demonstration".
+
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackground.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/backgrounds/protos/TexturedBackgroundLight.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/objects/floors/protos/RectangleArena.proto"
+EXTERNPROTO "https://raw.githubusercontent.com/cyberbotics/webots/R2025a/projects/robots/gctronic/e-puck/protos/E-puck.proto"
+
+WorldInfo {
+  info [
+    "Conceptual simulation: real leaf_v3 YOLOv8 model + a Webots library robot body."
+    "Not a physical robot. See Simulation_Sprint_Plan.md section 5 for presentation framing."
+  ]
+  title "Leaf Field -- Conceptual Demonstration"
+  basicTimeStep 32
+}
+
+Viewpoint {
+  orientation -0.30 0.92 0.25 1.65
+  position -0.9 1.1 -1.1
+  follow "EPUCK"
+  followType "Mounted Shot"
+}
+
+TexturedBackground {
+}
+TexturedBackgroundLight {
+}
+
+RectangleArena {
+  floorSize 2 2
+  floorTileSize 2 2
+  floorAppearance PBRAppearance {
+    baseColor 0.36 0.27 0.17
+    roughness 1
+    metalness 0
+  }
+  wallHeight 0.05
+}
+
+E-puck {
+  translation 0 0 0
+  rotation 0 1 0 0
+  name "EPUCK"
+  controller "leaf_collector"
+  supervisor TRUE
+  camera_width 256
+  camera_height 256
+  turretSlot [
+    Solid {
+      translation 0.045 0.01 0
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.55 0.55 0.55
+            roughness 0.8
+          }
+          geometry Box {
+            size 0.05 0.02 0.07
+          }
+        }
+      ]
+      name "scoop"
+    }
+  ]
+}
+
+# Scattered leaves. DEF names LEAF_1..LEAF_5 are required -- the
+# controller looks them up by exactly this naming pattern
+# (see LEAF_DEF_PREFIX in leaf_collector.py) to know which node to
+# remove on a scripted "pickup". Positions are spread around the arena
+# so the robot has to search+turn between each one, per the plan's
+# "repeat over 3-5 consecutive leaves" requirement.
+
+DEF LEAF_1 Solid {
+  translation 0.35 0.001 0.25
+  rotation 1 0 0 -1.5708
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [ "textures/leaf.jpg" ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Plane {
+        size 0.08 0.06
+      }
+    }
+  ]
+  name "leaf_1"
+}
+
+DEF LEAF_2 Solid {
+  translation -0.4 0.001 0.3
+  rotation 1 0 0 -1.5708
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [ "textures/leaf.jpg" ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Plane {
+        size 0.07 0.05
+      }
+    }
+  ]
+  name "leaf_2"
+}
+
+DEF LEAF_3 Solid {
+  translation 0.2 0.001 -0.45
+  rotation 1 0 0 -1.5708
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [ "textures/leaf.jpg" ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Plane {
+        size 0.09 0.065
+      }
+    }
+  ]
+  name "leaf_3"
+}
+
+DEF LEAF_4 Solid {
+  translation -0.3 0.001 -0.35
+  rotation 1 0 0 -1.5708
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [ "textures/leaf.jpg" ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Plane {
+        size 0.075 0.055
+      }
+    }
+  ]
+  name "leaf_4"
+}
+
+DEF LEAF_5 Solid {
+  translation 0.55 0.001 -0.1
+  rotation 1 0 0 -1.5708
+  children [
+    Shape {
+      appearance PBRAppearance {
+        baseColorMap ImageTexture {
+          url [ "textures/leaf.jpg" ]
+        }
+        roughness 1
+        metalness 0
+      }
+      geometry Plane {
+        size 0.08 0.06
+      }
+    }
+  ]
+  name "leaf_5"
+}
