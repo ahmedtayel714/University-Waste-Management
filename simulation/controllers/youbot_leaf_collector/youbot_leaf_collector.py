@@ -54,8 +54,14 @@ CAMERA_FOV = 0.9  # radians -- MUST match the Camera node's fieldOfView in leaf_
 # y=left, z=up). MUST match the Camera/RangeFinder translation+rotation
 # in leaf_field.wbt exactly -- these numbers are not independent of the
 # world file, they describe the same physical mount.
-CAMERA_MOUNT_TRANSLATION = (0.10, 0.0, 0.42)
-CAMERA_MOUNT_ROTATION_AXIS_ANGLE = (0.0, 1.0, 0.0, 1.30)  # pitched down, not quite straight down
+#
+# Raised from an earlier low mount (z=0.30) that put the camera inside
+# the arm's own operating envelope -- confirmed from a recorded run that
+# the camera was staring at the arm's own dark mesh, not the ground.
+# Now mounted on a visible mast well above the arm's reach, with a
+# shallower pitch so it looks out across the ground ahead of the robot.
+CAMERA_MOUNT_TRANSLATION = (0.0, 0.0, 0.55)
+CAMERA_MOUNT_ROTATION_AXIS_ANGLE = (0.0, 1.0, 0.0, 1.0)  # ~57 degrees down from horizontal
 
 # Arm base (ARM1 joint origin) offset in the same BODY local frame --
 # from the real Youbot.proto: arm Solid at (0.156, 0, 0), ARM1 hinge

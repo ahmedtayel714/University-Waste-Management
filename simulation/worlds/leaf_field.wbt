@@ -62,17 +62,42 @@ YoubotWithGripperSlot {
   controller "youbot_leaf_collector"
   numberOfArms 1
   bodySlot [
+    # Camera mast: the camera was originally mounted flush at z=0.30,
+    # which put it low enough that the arm's own dark mesh filled most
+    # of the frame (confirmed from a recorded run -- the "leaf" the
+    # detector was staring at was the robot's own arm link, not the
+    # ground). Raised well above the arm's operating envelope on a
+    # visible support pole instead, with a shallower pitch so it looks
+    # out across the ground ahead of the robot rather than down into
+    # its own chassis.
+    Solid {
+      translation 0 0 0.28
+      children [
+        Shape {
+          appearance PBRAppearance {
+            baseColor 0.3 0.3 0.3
+            roughness 0.6
+            metalness 0.2
+          }
+          geometry Cylinder {
+            radius 0.008
+            height 0.56
+          }
+        }
+      ]
+      name "camera mast"
+    }
     Camera {
-      translation 0.10 0 0.30
-      rotation 0 1 0 1.30
+      translation 0.0 0 0.55
+      rotation 0 1 0 1.0
       name "camera"
       fieldOfView 0.9
       width 256
       height 256
     }
     RangeFinder {
-      translation 0.10 0 0.30
-      rotation 0 1 0 1.30
+      translation 0.0 0 0.55
+      rotation 0 1 0 1.0
       name "range-finder"
       fieldOfView 0.9
       width 256
